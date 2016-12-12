@@ -413,7 +413,14 @@ public class SockCopy {
     }
     
     /**
-     * Block and receive UTF-8 string from the socket terminated with STRING_TERMINATOR
+     * Block and receive UTF-8 string terminated with STRING_TERMINATOR.
+     * This is not a high performance function and should only be used for 
+     * relatively small data.
+     * 
+     * The function will not read off the input stream beyond the terminator,
+     * making it really easy for interactive exchange of data. The function
+     * reads in the stream in per-byte fashion instead of buffering up data
+     * off the stream in memory (as you would for performance)
      * 
      * @param s Socket handle to use
      * @return String representation of the received data
