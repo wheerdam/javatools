@@ -136,12 +136,35 @@ public class SockCopy {
                         }
                     }
                     break;
+                case "listfiles":
+                    if(tokens.length < 2) {
+                        effectivePath = currentPath;
+                    } else {
+                        effectivePath = tokens[1].startsWith("/") ? tokens[1] :
+                            currentPath + tokens[1];
+                    }
+                    f = new File(effectivePath);
+                    fileList = new ArrayList<>();
+                    populateFileList(f.getParentFile(), f, fileList, false);
+                    for(FileEntry e : fileList) {
+                        if(!e.getFile().isDirectory()) {
+                            send(s, e.getName());
+                        }
+                    }
+                    break;
                 case "cd":
                     if(tokens.length < 2) {
                         break;
                     }
                     if(tokens[1].startsWith("/")) {
                         f = new File(tokens[1]);
+                    } else if(tokens[1].equals("..")) {
+                        File parent = (new File(currentPath)).getParentFile();
+                        if(parent != null) {
+                            f = parent;
+                        } else {
+                            f = new File(currentPath);
+                        }
                     } else {
                         f = new File(currentPath + tokens[1]);
                     }
@@ -414,13 +437,10 @@ public class SockCopy {
     
     /**
      * Block and receive UTF-8 string terminated with STRING_TERMINATOR.
-     * This is not a high performance function and should only be used for 
-     * relatively small data.
-     * 
      * The function will not read off the input stream beyond the terminator,
      * making it really easy to use for interactive data exchange. The 
      * function reads in the stream in per-byte fashion instead of buffering 
-     * up data off the stream in memory (as you would for performance).
+     * up data off the stream in memory.
      * 
      * @param s Socket handle to use
      * @return String representation of the received data

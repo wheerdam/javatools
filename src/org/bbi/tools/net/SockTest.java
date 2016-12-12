@@ -25,7 +25,6 @@ import java.nio.file.Paths;
 import java.text.NumberFormat;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import javax.swing.BoxLayout;
 import javax.swing.JDialog;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
@@ -37,7 +36,7 @@ import javax.swing.JProgressBar;
  */
 public class SockTest {
     public static void main(String args[]) {
-        if(args.length == 2 && args[0].equals("--serve")) {
+        if(args.length == 2 && args[0].equals("serve")) {
             try {
                 ExecutorService pool = Executors.newFixedThreadPool(8);
                 ServerSocket ss = new ServerSocket(Integer.parseInt(args[1]));
@@ -51,7 +50,7 @@ public class SockTest {
             } catch(Exception e) {
                 e.printStackTrace();
             }
-        } else if(args.length == 2 && args[0].equals("--interactive")) {
+        } else if(args.length == 2 && args[0].equals("interactive")) {
             try {
                 ExecutorService pool = Executors.newFixedThreadPool(8);
                 ServerSocket ss = new ServerSocket(Integer.parseInt(args[1]));
@@ -66,27 +65,34 @@ public class SockTest {
             } catch(Exception e) {
                 e.printStackTrace();
             }
-        } else if(args.length == 2 && args[0].equals("--get")) {
+        } else if(args.length >= 2 && args[0].equals("get")) {
             try {
                 String[] tokens = args[1].split(":");
                 String host = tokens[0];
                 int port = Integer.parseInt(tokens[1]);
                 String path = tokens[2];
-                Socket s = new Socket(host, port);                
-                Progress p = new Progress();
-                ProgressFrame pFrame = new ProgressFrame(p);
-                ProgressUpdater pUpdater = new ProgressUpdater(pFrame);
-                (new Thread(pUpdater)).start();
-                SockCopy.send(s, "get " + path);
-                SockCopy.get(s, ".", p);
-                SockCopy.send(s, "quit");
-                pUpdater.stop();
-                pFrame.dispose();
+                Socket s = new Socket(host, port);        
+                Progress p = null;
+                if(args.length == 3 && args[2].equals("--progress")) {
+                    p = new Progress();
+                    ProgressFrame pFrame = new ProgressFrame(p);
+                    ProgressUpdater pUpdater = new ProgressUpdater(pFrame);
+                    (new Thread(pUpdater)).start();
+                    SockCopy.send(s, "get " + path);
+                    SockCopy.get(s, ".", p);
+                    SockCopy.send(s, "quit");
+                    pUpdater.stop();
+                    pFrame.dispose();
+                } else {
+                    SockCopy.send(s, "get " + path);
+                    SockCopy.get(s, ".", null);
+                    SockCopy.send(s, "quit");
+                }
                 s.close();
             } catch(Exception e) {
                 e.printStackTrace();              
             }
-        } else if(args.length == 3 && args[0].equals("--sendtext")) {
+        } else if(args.length == 3 && args[0].equals("sendtext")) {
             try {
                 ServerSocket ss = new ServerSocket(Integer.parseInt(args[1]));
                 String data = new String(Files.readAllBytes(Paths.get(args[2])), "UTF-8");
@@ -95,19 +101,24 @@ public class SockTest {
             } catch(Exception e) {
                 e.printStackTrace();
             }
-        } else if(args.length == 2 && args[0].equals("--recvtext")) {
+        } else if(args.length == 2 && args[0].equals("recvtext")) {
             try {
                 String[] tokens = args[1].split(":");
                 String host = tokens[0];
                 int port = Integer.parseInt(tokens[1]);
                 Socket s = new Socket(host, port);
-                System.out.println(SockCopy.recv(s));
+                SockCopy.recv(s);
             } catch(Exception e) {
                 e.printStackTrace();
             }
         } else {
-            System.err.println("serve: java -jar <jarfile> --serve PORT");
-            System.err.println("fetch: java -jar <jarfile> --get HOST:PORT:PATH");
+            System.err.println("usage: java -cp <javatools-jar> org.bbi.tools.net.SockTest <command> [options]");
+            System.err.println("commands:");
+            System.err.println("    serve PORT");
+            System.err.println("    interactive PORT");
+            System.err.println("    get HOST:PORT:PATH [--progress]");
+            System.err.println("    sendtext PORT FILE");
+            System.err.println("    recvtext HOST:PORT");
         }
     }
     
