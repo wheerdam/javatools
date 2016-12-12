@@ -22,8 +22,10 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.Socket;
+import java.text.NumberFormat;
 import java.util.ArrayList;
 import java.util.List;
+import org.bbi.tools.Log;
 
 /**
  * Some tools to transfer string and files over a socket connection
@@ -39,7 +41,7 @@ public class SockCopy {
     /**
      * Size of the buffer used to receive data
      */
-    private static int RECEIVE_BUFFER_SIZE = 8192;
+    private static int RECEIVE_BUFFER_SIZE = 32768;
     
     /**
      * String terminator for send and receive methods
@@ -99,7 +101,7 @@ public class SockCopy {
                     }
                     effectivePath = tokens[1].startsWith("/") ? tokens[1] :
                             currentPath + tokens[1];
-                    SockCopy.putRecursive(s, effectivePath, p);
+                    SockCopy.put(s, effectivePath, p);
                     break;
                 case "quit":
                     quit = true;
@@ -152,99 +154,68 @@ public class SockCopy {
                     break;
             }               
         }
-    }
-    
-    /**
-     * Transfer a file to a client through the socket. The file must be a
-     * single file and can not be a directory. The client must use 
-     * SockCopy.get to receive a file transferred using SockCopy.put.
-     * Use SockCopy.putRecursive to transfer files recursively through the
-     * socket. 
-     * 
-     * @param s Socket handle to use
-     * @param fileName File to transfer
-     * @param p Progress handle to use
-     * @throws IOException 
-     */
-    public static void put(Socket s, String fileName, 
-            Progress p) throws IOException {
-        int nr;
-        String line;
-        byte[] sendBuffer = new byte[SEND_BUFFER_SIZE];
-        File file = new File(fileName);
-        FileInputStream in = new FileInputStream(file);
-        OutputStream out = s.getOutputStream();
-        if(p != null) {
-            p.name = fileName;
-        }
-        long len = file.length();
-        if(len < 0) {
-            throw new IOException("file size too big");
-        }
-        byte[] size = { (byte) (len >> 56),
-                        (byte) (len >> 48),
-                        (byte) (len >> 40),
-                        (byte) (len >> 32),
-                        (byte) (len >> 24),
-                        (byte) (len >> 16),
-                        (byte) (len >> 8),
-                        (byte) (len & 0xff)
-        };
-        out.write(size);
-        if(p != null) {
-            p.currentFileCopied = 0;
-            p.currentFileSize = len;
-        }
-        while((nr = in.read(sendBuffer)) != -1) {
-            out.write(sendBuffer, 0, nr);
-            if(p != null) {
-                p.currentFileCopied += nr;
-                p.copiedTotalBytes += nr;
-            }
-        }
-        out.flush();
-        
-        // block until client is done
-        line = recv(s);
-        if(!line.equals("done")) {
-            System.err.println("illegal completion indicator");
-        }
-    }
+    }    
     
     /**
      * Recursively transfer files to a client using a socket. If the file
      * is a directory, the directory will be traversed and all files found
-     * will be transferred. The client must use SockCopy.getRecursive to receive
+     * will be transferred. The client must use SockCopy.get to receive
      * the files
      * 
      * @param s Socket handle to use
      * @param fileName File or directory to transfer
-     * @param p Progress handle to use
+     * @param p Progress handle to use (can be null)
      * @throws IOException 
      */
-    public static void putRecursive(Socket s, String fileName, 
+    public static void put(Socket s, String fileName, 
             Progress p) throws IOException {
+        String d;
         List<FileEntry> fileList = new ArrayList<>();
         File file = new File(fileName);
+        FileInputStream in;
+        byte[] sendBuffer = new byte[SEND_BUFFER_SIZE];
+        int nr;
         try {
             long totalBytes = 0L;
             populateFileList(file.getParentFile(), file, fileList, true);
+            send(s, String.valueOf(fileList.size()));
             for(FileEntry f : fileList) {
+                send(s, String.valueOf(f.getFile().length()) + " " +
+                        f.getRelativePath());
                 totalBytes += f.getFile().length();
             }
+            send(s, String.valueOf(totalBytes));
             if(p != null) {
                 p.copiedTotalBytes = 0;
                 p.totalFiles = fileList.size();
                 p.totalBytes = totalBytes;
             }
-            send(s, String.valueOf(fileList.size()));
-            send(s, String.valueOf(totalBytes));
-            for(FileEntry f : fileList) {             
-                File fileHandle = f.getFile();
-                System.out.println("put " + f.getRelativePath() + 
-                        " (" + fileHandle.length() + " bytes)");
-                send(s, f.getRelativePath());
-                put(s, f.getFile().getAbsolutePath(), p);
+            for(int i = 0; i < fileList.size(); i++) {
+                FileEntry f = fileList.get(i);
+                File fileHandle =  f.getFile();
+                if(p != null) {
+                    p.currentFileNumber = i + 1;
+                    p.currentFileCopied = 0;
+                    p.currentFileSize = fileHandle.length();
+                    p.name = f.getRelativePath();
+                }
+                Log.d(0, "put " + String.format("[%1$15s]", 
+                        NumberFormat.getIntegerInstance().format(fileHandle.length()))
+                        + " " + f.getRelativePath());
+                // transfer bytes
+                in = new FileInputStream(fileHandle);
+                while((nr = in.read(sendBuffer)) != -1) {
+                    s.getOutputStream().write(sendBuffer, 0, nr);
+                    if(p != null) {
+                        p.currentFileCopied += nr;
+                        p.copiedTotalBytes += nr;
+                    }
+                }
+                in.close();
+            }
+            s.getOutputStream().flush();
+            if(!(d = recv(s)).equals("done")) {
+                Log.err("illegal termination line: " + d);
             }
         } catch(IOException ioe) {
             send(s, "-1");
@@ -301,25 +272,48 @@ public class SockCopy {
     }
     
     /**
-     * Recursively receive multiple files over the socket. The server use
-     * SockCopy.putRecursive method to copy the files
+     * Recursively receive multiple files over the socket. The server must use
+     * SockCopy.put to transfer the files
      * 
      * @param s Socket handle to use
      * @param destDir Destination directory for the received files
-     * @param p Progress handle to use
+     * @param p Progress handle to use (can be null)
      * @throws IOException 
      */
-    public static void getRecursive(Socket s, String destDir,
+    public static void get(Socket s, String destDir,
             Progress p) throws IOException {
-        String name;
+        String[] tokens;
+        long currentFileCopiedBytes;
+        long totalCopiedBytes = 0;
+        int nr, remainingBytes, nextBytes;
+        byte[] receiveBuffer = new byte[RECEIVE_BUFFER_SIZE];
+        byte[] overflowBuffer = null;
+        long startTime = System.nanoTime();
+        
+        // get total number of files
         String numOfFilesString = recv(s);
+        FileOutputStream out;
         int numOfFiles = Integer.parseInt(numOfFilesString);
         if(numOfFiles < 0) {
             System.err.println("server returned -1");
             return;
         }
+        
+        // get file names and sizes
+        String[] fileNames = new String[numOfFiles];
+        long[] fileSizes = new long[numOfFiles];
+        for(int i = 0; i < numOfFiles; i++) {
+            tokens = recv(s).split(" ", 2);
+            fileNames[i] = tokens[1];
+            fileSizes[i] = Long.parseLong(tokens[0]);
+        }
+        
+        // get total number of bytes so the user knows how big the incoming
+        // transmission is
         long totalBytes = Long.parseLong(recv(s));
-        System.out.println("Files to fetch: " + numOfFiles);
+        Log.d(0, "number of files to fetch: " + numOfFiles + " (" +
+                NumberFormat.getIntegerInstance().format(totalBytes) +
+                " bytes)");
         if(p != null) {
             p.copiedTotalBytes = 0;
             p.totalFiles = numOfFiles;
@@ -328,79 +322,80 @@ public class SockCopy {
         for(int i = 0; i < numOfFiles; i++) {
             if(p != null) {
                 p.currentFileNumber = i + 1;
+                p.currentFileCopied = 0;
+                p.currentFileSize = fileSizes[i];
+                p.name = fileNames[i];
             }
-            name = recv(s);
-            File f = new File(destDir + File.separator + name);
+            File f = new File(destDir + File.separator + fileNames[i]);
             createParentDirectory(f.getParentFile());
-            System.out.println("fetch " + destDir + File.separator + name);
-            get(s, destDir + File.separator + name, p);
-        }
-    }    
-    
-    /**
-     * Receive a file transferred from a server using SockCopy.put and write it out
-     * to destFile
-     * 
-     * @param s Socket handle to use
-     * @param destFile Detination file to write to
-     * @param p Progress handle to use
-     * @throws IOException
-     * @throws ArrayIndexOutOfBoundsException 
-     */
-    public static void get(Socket s, String destFile, 
-            Progress p) throws IOException, ArrayIndexOutOfBoundsException {
-        FileOutputStream out = new FileOutputStream(destFile);
-        int nr;
-        int bytesRead = 0;
-        long bytesToFetch = -1;
-        int sizeBufferOffset = 0;
-        byte[] sizeBuffer = new byte[8];
-        byte[] receiveBuffer = new byte[RECEIVE_BUFFER_SIZE];
-        InputStream in = s.getInputStream();
-        if(p != null) {
-            p.name = destFile;
-        }
-        while((bytesRead < bytesToFetch || bytesToFetch < 0) &&
-                (nr = in.read(receiveBuffer)) != -1) {
-            if(sizeBufferOffset < 8) {
-                if(nr >= (8-sizeBufferOffset)) {
-                    bytesRead = nr - (8-sizeBufferOffset);
-                    System.arraycopy(receiveBuffer, 0,
-                                     sizeBuffer, sizeBufferOffset, 8-sizeBufferOffset);
-                    bytesToFetch = ((sizeBuffer[0] << 56) & 0xff00000000000000L) +
-                                   ((sizeBuffer[1] << 48) & 0x00ff000000000000L) +
-                                   ((sizeBuffer[2] << 40) & 0x0000ff0000000000L) +
-                                   ((sizeBuffer[3] << 32) & 0x000000ff00000000L) +
-                                   ((sizeBuffer[4] << 24) & 0x00000000ff000000L) +
-                                   ((sizeBuffer[5] << 16) & 0x0000000000ff0000L) +
-                                   ((sizeBuffer[6] << 8)  & 0x000000000000ff00L) +
-                                   ((sizeBuffer[7])       & 0x00000000000000ffL);
-                    if(p != null) {
-                        p.currentFileSize = bytesToFetch;
-                        p.currentFileCopied = bytesRead;
-                        p.copiedTotalBytes += bytesRead;
-                    }
-                    if(bytesRead > 0) {
-                        out.write(receiveBuffer, nr-bytesRead, bytesRead);
-                    }
-                    sizeBufferOffset = 8;
+            Log.d(0, "get " + String.format("[%1$15s]", 
+                    NumberFormat.getIntegerInstance().format(fileSizes[i])) + " "
+                    + destDir + File.separator + fileNames[i]);
+            currentFileCopiedBytes = 0;
+            out = new FileOutputStream(f);
+            if(overflowBuffer != null) {
+                // overflow from last iteration and it's less than/equal to the
+                // current file
+                if(overflowBuffer.length <= fileSizes[i]) {
+                    Log.d(3, "resume of=" + overflowBuffer.length);
+                    out.write(overflowBuffer);
+                    currentFileCopiedBytes = overflowBuffer.length;
+                    overflowBuffer = null;
+                
+                // overflow and it contains all of current file
+                } else {                    
+                    remainingBytes = (int)(fileSizes[i]);
+                    nextBytes = (int)(overflowBuffer.length - fileSizes[i]);
+                    Log.d(3, "cutoff copied=" + remainingBytes);
+                    out.write(overflowBuffer, 0, remainingBytes);
+                    byte[] newOverflowBuffer = new byte[nextBytes];
+                    System.arraycopy(overflowBuffer, remainingBytes,
+                            newOverflowBuffer, 0, nextBytes);
+                    overflowBuffer = newOverflowBuffer;
+                    currentFileCopiedBytes = fileSizes[i];
+                }                
+            }
+            while(currentFileCopiedBytes < fileSizes[i] && 
+                    (nr = s.getInputStream().read(receiveBuffer)) != -1) {
+                if(currentFileCopiedBytes + nr <= fileSizes[i]) {
+                    Log.d(3, "------ nr=" + nr + " copied=" + currentFileCopiedBytes);
+                    out.write(receiveBuffer, 0 , nr);
+                    currentFileCopiedBytes += nr;
                 } else {
-                    System.arraycopy(receiveBuffer, 0,
-                                     sizeBuffer, sizeBufferOffset, nr);
-                    sizeBufferOffset += nr;
-                }
-            } else {
-                out.write(receiveBuffer, 0, nr);
-                bytesRead += nr;
+                    // we're done with this file but there's a piece of the
+                    // next one. put it in our overflow buffer for next iteration
+                    remainingBytes = (int)(fileSizes[i] - currentFileCopiedBytes);
+                    nextBytes = nr - remainingBytes;
+                    Log.d(3, "cutoff nr=" + nr + 
+                            " copied=" + currentFileCopiedBytes + " remainingBytes=" + 
+                            remainingBytes);
+                    out.write(receiveBuffer, 0, remainingBytes);
+                    currentFileCopiedBytes = fileSizes[i];
+                    overflowBuffer = new byte[nextBytes];
+                    System.arraycopy(receiveBuffer, remainingBytes,
+                            overflowBuffer, 0, nextBytes);
+                }                
+                totalCopiedBytes += nr;
                 if(p != null) {
-                    p.currentFileCopied = bytesRead;
-                    p.copiedTotalBytes += nr;
+                    p.currentFileCopied = currentFileCopiedBytes;
+                    p.copiedTotalBytes = totalCopiedBytes;
                 }
             }
+            out.close();
         }
-        out.close();
         send(s, "done");
-    }
+            
+        if(totalCopiedBytes < totalBytes) {
+            Log.err("missing bytes");
+        }
+        
+        long duration = System.nanoTime() - startTime;
+        double seconds = duration / 1000000000.0;
+        double speed = (totalBytes / 1000.0) / seconds;
+        Log.d(0, NumberFormat.getIntegerInstance().format(totalBytes) + " bytes in " +
+                String.format("%.3f", seconds) + " seconds (" +
+                String.format("%.2f", speed) + " KiB/s)");
+    }            
     
     /**
      * Send a string through the socket as UTF-8 terminated with STRING_TERMINATOR

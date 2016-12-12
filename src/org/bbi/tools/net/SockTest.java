@@ -17,6 +17,7 @@ package org.bbi.tools.net;
 
 import java.nio.file.Files;
 import java.awt.BorderLayout;
+import java.awt.GridLayout;
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
@@ -24,8 +25,10 @@ import java.nio.file.Paths;
 import java.text.NumberFormat;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import javax.swing.BoxLayout;
 import javax.swing.JDialog;
 import javax.swing.JLabel;
+import javax.swing.JPanel;
 import javax.swing.JProgressBar;
 
 /**
@@ -75,11 +78,8 @@ public class SockTest {
                 ProgressUpdater pUpdater = new ProgressUpdater(pFrame);
                 (new Thread(pUpdater)).start();
                 SockCopy.send(s, "get " + path);
-                SockCopy.getRecursive(s, ".", p);
+                SockCopy.get(s, ".", p);
                 SockCopy.send(s, "quit");
-                System.out.println(p.getTotalFiles() + " files (" + 
-                        NumberFormat.getIntegerInstance().format(p.getCopiedTotalBytes())
-                        + " bytes) copied");
                 pUpdater.stop();
                 pFrame.dispose();
                 s.close();
@@ -114,17 +114,27 @@ public class SockTest {
     static class ProgressFrame extends JDialog {
         private final Progress p;
         private final JProgressBar bar;
-        private final JLabel label;
+        private final JProgressBar barFile;
+        private final JLabel totalBytes;
         
         public ProgressFrame(Progress p) {
             this.p = p;
             bar = new JProgressBar();
-            label = new JLabel("File fetch");
-            getContentPane().add(bar, BorderLayout.CENTER);
-            getContentPane().add(label, BorderLayout.PAGE_START);
+            barFile = new JProgressBar();
+            totalBytes = new JLabel("File fetch");
+            bar.setMinimum(0);
+            bar.setMaximum(100000);
+            barFile.setMinimum(0);
+            barFile.setMaximum(100000);
+            JPanel barContainer = new JPanel();
+            barContainer.setLayout(new GridLayout(2, 1));
+            barContainer.add(barFile);
+            barContainer.add(bar);            
+            getContentPane().add(barContainer, BorderLayout.CENTER);
+            getContentPane().add(totalBytes, BorderLayout.PAGE_END);
             pack();
             setLocationRelativeTo(null);
-            setSize(600, 60);
+            setSize(600, 100);
             setVisible(true);
         }
         
@@ -137,14 +147,15 @@ public class SockTest {
                 setTitle(title);
             }
             if(p.getTotalBytes() > 0) {
-                if(p.getTotalBytes() < Math.pow(2, 30)) {
-                    bar.setMaximum((int) p.getTotalBytes());
-                    bar.setValue((int) p.getCopiedTotalBytes());
-                } else {
-                    bar.setMaximum((int) (p.getTotalBytes() / Math.pow(2,20)));
-                    bar.setValue((int) (p.getCopiedTotalBytes() / Math.pow(2,20)));
-                }
-                label.setText(
+                int value = (int)(
+                    (double)p.getCopiedTotalBytes() / p.getTotalBytes() * 100000
+                );
+                int fileValue = (int)(
+                    (double)p.getCopiedCurrentFileBytes() / p.getCurrentFileSize() * 100000
+                );
+                bar.setValue(value);
+                barFile.setValue(fileValue);
+                totalBytes.setText("total: " +
                         NumberFormat.getIntegerInstance().format(p.getCopiedTotalBytes()) + " of " + 
                         NumberFormat.getIntegerInstance().format(p.getTotalBytes()) + " bytes copied"
                 );

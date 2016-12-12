@@ -32,7 +32,7 @@ public class Progress {
         return currentFileSize;
     }
     
-    public long currentFileCopied() {
+    public long getCopiedCurrentFileBytes() {
         return currentFileCopied;
     }
     
