@@ -418,9 +418,9 @@ public class SockCopy {
      * relatively small data.
      * 
      * The function will not read off the input stream beyond the terminator,
-     * making it really easy for interactive exchange of data. The function
-     * reads in the stream in per-byte fashion instead of buffering up data
-     * off the stream in memory (as you would for performance)
+     * making it really easy to use for interactive data exchange. The 
+     * function reads in the stream in per-byte fashion instead of buffering 
+     * up data off the stream in memory (as you would for performance).
      * 
      * @param s Socket handle to use
      * @return String representation of the received data
