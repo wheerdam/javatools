@@ -16,6 +16,10 @@
 package org.bbi.tools.net;
 
 /**
+ * Holds information about a file transfer being done by either 
+ * {@link Sock#put(Socket, String, Progress) Sock.put} or 
+ * {@link Sock#get(Socket, String, Progress) Sock.get}. This class can be used
+ * to asynchronously check the progress of the transfer.
  *
  * @author wira
  */
@@ -28,34 +32,74 @@ public class Progress {
     protected long totalFiles = 0;
     protected String name = null;
     
+    /**
+     * Get file size of currently transferred file
+     * 
+     * @return File length
+     */
     public long getCurrentFileSize() {
         return currentFileSize;
     }
     
+    /**
+     * Get the size of portion of the file that has been transferred
+     * 
+     * @return Size in bytes
+     */
     public long getCopiedCurrentFileBytes() {
         return currentFileCopied;
     }
     
+    /**
+     * Get the current number of file that is being transferred
+     * 
+     * @return Current file number
+     */
     public long getCurrentFileNumber() {
         return currentFileNumber;
     }
     
+    /**
+     * Get the total number of files that are being trasnferred
+     * 
+     * @return Total number of files
+     */
     public long getTotalFiles() {
         return totalFiles;
     }
     
+    /**
+     * Get the total number of bytes that have been transferred
+     * 
+     * @return Total transferred size in bytes
+     */
     public long getCopiedTotalBytes() {
         return copiedTotalBytes;
     }
     
+    /**
+     * Get the the total number of bytes that are being transferred
+     * 
+     * @return Total transfer size in bytes
+     */
     public long getTotalBytes() {
         return totalBytes;
     }
     
+    /**
+     * Get the name of the current file being transferred
+     * 
+     * @return Name of file
+     */
     public String getName() {
         return name;
     }
     
+    /**
+     * Check if the transfer is done
+     * 
+     * @return 
+     */
     public boolean done() {
         return totalBytes > 0 && copiedTotalBytes == totalBytes;
     }

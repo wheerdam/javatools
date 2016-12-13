@@ -29,6 +29,7 @@ import javax.swing.JDialog;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JProgressBar;
+import org.bbi.tools.Log;
 
 /**
  *
@@ -36,9 +37,9 @@ import javax.swing.JProgressBar;
  */
 public class SockTest {
     public static void main(String args[]) {
+        ExecutorService pool = Executors.newFixedThreadPool(8);
         if(args.length == 3 && args[0].equals("serve")) {
             try {
-                ExecutorService pool = Executors.newFixedThreadPool(8);
                 ServerSocket ss = new ServerSocket(Integer.parseInt(args[1]));
                 while(true) {
                     try {
@@ -52,7 +53,6 @@ public class SockTest {
             }
         } else if(args.length == 3 && args[0].equals("interactive")) {
             try {
-                ExecutorService pool = Executors.newFixedThreadPool(8);
                 ServerSocket ss = new ServerSocket(Integer.parseInt(args[1]));
                 while(true) {
                     try {
@@ -108,6 +108,24 @@ public class SockTest {
                 int port = Integer.parseInt(tokens[1]);
                 Socket s = new Socket(host, port);
                 Sock.recv(s);
+            } catch(Exception e) {
+                e.printStackTrace();
+            }
+        } else if(args.length == 2 && args[0].equals("punchserver")) {
+            Log.debugLevel = 1;
+            try {
+                pool.execute(new TCPHolePunchServer(Integer.parseInt(args[1])));
+            } catch(Exception e) {
+                e.printStackTrace();
+            }
+        } else if(args.length == 2 && args[0].equals("punchclient")) {
+            Log.debugLevel = 1;
+            try {
+                String[] tokens = args[1].trim().split(":", 2);
+                String host = tokens[0];
+                int port = Integer.parseInt(tokens[1]);
+                TCPHolePunchClient c = new TCPHolePunchClient();
+                c.connect(host, port);
             } catch(Exception e) {
                 e.printStackTrace();
             }

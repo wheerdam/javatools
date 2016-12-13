@@ -48,8 +48,8 @@ public class Config {
         orderedKeys = new HashMap();
         configFiles = new ArrayList<>();
         configLines = new HashMap<>();
-        sections.put("GLOBAL", new HashMap<>());
-        orderedKeys.put("GLOBAL", new ArrayList<>());
+        sections.put("GLOBAL", new HashMap<String, String>());
+        orderedKeys.put("GLOBAL", new ArrayList<String>());
     }
     
     public final void load(String str) {
