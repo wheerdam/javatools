@@ -32,7 +32,7 @@ import org.bbi.tools.Log;
  *
  * @author wira
  */
-public class SockCopy {   
+public class Sock {   
     /**
      * Size of the buffer used to send data
      */
@@ -73,122 +73,18 @@ public class SockCopy {
      */
     public static void setStringTerminator(byte b) {
         STRING_TERMINATOR = b;
-    }
-    
-    /**
-     * Interactive file server. The client must send the 'quit' command for the
-     * server to escape this mode
-     * 
-     * @param s Socket handle to use
-     * @param p Progress handle to use
-     * @throws IOException 
-     */
-    public static void wait(Socket s, Progress p) throws IOException {
-        String line;
-        String[] tokens;
-        String currentPath = "/";
-        String effectivePath;
-        boolean quit = false;
-        while(!quit) {
-            line = recv(s);
-            tokens = line.split(" ", 2);
-            File f;
-            List<FileEntry> fileList;
-            switch(tokens[0]) {
-                case "get":
-                    if(tokens.length < 2) {
-                        break;
-                    }
-                    effectivePath = tokens[1].startsWith("/") ? tokens[1] :
-                            currentPath + tokens[1];
-                    SockCopy.put(s, effectivePath, p);
-                    break;
-                case "quit":
-                    quit = true;
-                    break;
-                case "list":
-                    if(tokens.length < 2) {
-                        effectivePath = currentPath;
-                    } else {
-                        effectivePath = tokens[1].startsWith("/") ? tokens[1] :
-                            currentPath + tokens[1];
-                    }
-                    f = new File(effectivePath);
-                    fileList = new ArrayList<>();
-                    populateFileList(f.getParentFile(), f, fileList, false);
-                    for(FileEntry e : fileList) {
-                        send(s, e.getName());
-                    }
-                    break;
-                case "listdir":
-                    if(tokens.length < 2) {
-                        effectivePath = currentPath;
-                    } else {
-                        effectivePath = tokens[1].startsWith("/") ? tokens[1] :
-                            currentPath + tokens[1];
-                    }
-                    f = new File(effectivePath);
-                    fileList = new ArrayList<>();
-                    populateFileList(f.getParentFile(), f, fileList, false);
-                    for(FileEntry e : fileList) {
-                        if(e.getFile().isDirectory()) {
-                            send(s, e.getName());
-                        }
-                    }
-                    break;
-                case "listfiles":
-                    if(tokens.length < 2) {
-                        effectivePath = currentPath;
-                    } else {
-                        effectivePath = tokens[1].startsWith("/") ? tokens[1] :
-                            currentPath + tokens[1];
-                    }
-                    f = new File(effectivePath);
-                    fileList = new ArrayList<>();
-                    populateFileList(f.getParentFile(), f, fileList, false);
-                    for(FileEntry e : fileList) {
-                        if(!e.getFile().isDirectory()) {
-                            send(s, e.getName());
-                        }
-                    }
-                    break;
-                case "cd":
-                    if(tokens.length < 2) {
-                        break;
-                    }
-                    if(tokens[1].startsWith("/")) {
-                        f = new File(tokens[1]);
-                    } else if(tokens[1].equals("..")) {
-                        File parent = (new File(currentPath)).getParentFile();
-                        if(parent != null) {
-                            f = parent;
-                        } else {
-                            f = new File(currentPath);
-                        }
-                    } else {
-                        f = new File(currentPath + tokens[1]);
-                    }
-                    if(f.exists() && f.isDirectory()) {
-                        currentPath = f.getAbsolutePath() + "/";
-                    }
-                    break;
-                case "pwd":
-                    send(s, currentPath);
-                    break;
-            }               
-        }
-    }    
+    }        
     
     /**
      * Recursively transfer files to a client using a socket. If the file
      * is a directory, the directory will be traversed and all files found
-     * will be transferred. The client must use SockCopy.get to receive
-     * the files
+     * will be transferred. The client must use 
+     * {@link #get(Socket, String, Progress) get} to receive the files
      * 
      * @param s Socket handle to use
      * @param fileName File or directory to transfer
      * @param p Progress handle to use (can be null)
-     * @throws IOException 
+     * @throws IOException if an I/O exception occurs
      */
     public static void put(Socket s, String fileName, 
             Progress p) throws IOException {
@@ -222,7 +118,7 @@ public class SockCopy {
                     p.currentFileSize = fileHandle.length();
                     p.name = f.getRelativePath();
                 }
-                Log.d(0, "put " + String.format("[%1$15s]", 
+                Log.d(1, "put " + String.format("[%1$15s]", 
                         NumberFormat.getIntegerInstance().format(fileHandle.length()))
                         + " " + f.getRelativePath());
                 // transfer bytes
@@ -252,9 +148,9 @@ public class SockCopy {
      * @param f Path to traverse
      * @param fileList A list of FileEntry that will be populated
      * @param recursive Recurse into subdirectories
-     * @throws IOException 
+     * @throws IOException if an I/O exception occurs 
      */
-    private static void populateFileList(File parent, File f, 
+    public static void populateFileList(File parent, File f, 
             List<FileEntry> fileList,  boolean recursive)
             throws IOException {
         if(!f.exists()) {
@@ -277,7 +173,7 @@ public class SockCopy {
      * Recursively create parent directories
      * 
      * @param f Highest level directory
-     * @throws IOException 
+     * @throws IOException if an I/O exception occurs 
      */
     private static void createParentDirectory(File f) throws IOException {
         if(f == null) {
@@ -296,29 +192,29 @@ public class SockCopy {
     
     /**
      * Recursively receive multiple files over the socket. The server must use
-     * SockCopy.put to transfer the files
+     * {@link #put(Socket, String, Progress) put} to transfer the files
      * 
      * @param s Socket handle to use
      * @param destDir Destination directory for the received files
      * @param p Progress handle to use (can be null)
-     * @throws IOException 
+     * @throws IOException if an I/O exception occurs 
      */
     public static void get(Socket s, String destDir,
             Progress p) throws IOException {
+        long startTime = System.nanoTime();
         String[] tokens;
         long currentFileCopiedBytes;
         long totalCopiedBytes = 0;
         int nr, remainingBytes, nextBytes;
         byte[] receiveBuffer = new byte[RECEIVE_BUFFER_SIZE];
         byte[] overflowBuffer = null;
-        long startTime = System.nanoTime();
         
         // get total number of files
         String numOfFilesString = recv(s);
         FileOutputStream out;
         int numOfFiles = Integer.parseInt(numOfFilesString);
         if(numOfFiles < 0) {
-            System.err.println("server returned -1");
+            System.err.println("server returned " + numOfFiles);
             return;
         }
         
@@ -421,14 +317,15 @@ public class SockCopy {
     }            
     
     /**
-     * Send a string through the socket as UTF-8 terminated with STRING_TERMINATOR
+     * Send a string through the socket as <code>UTF-8</code> terminated with 
+     * <code>STRING_TERMINATOR</code>
      * 
      * @param s Socket handle to use
      * @param data String data to send
      * @throws IOException 
      */
     public static void send(Socket s, String data) throws IOException {
-        System.out.println("send: \"" + data + "\"");
+        Log.d(1, "send: \"" + data + "\"");
         OutputStream out = s.getOutputStream();
         out.write(data.getBytes("UTF-8"));
         out.write(STRING_TERMINATOR);
@@ -436,11 +333,11 @@ public class SockCopy {
     }
     
     /**
-     * Block and receive UTF-8 string terminated with STRING_TERMINATOR.
-     * The function will not read off the input stream beyond the terminator,
-     * making it really easy to use for interactive data exchange. The 
-     * function reads in the stream in per-byte fashion instead of buffering 
-     * up data off the stream in memory.
+     * Block and receive <code>UTF-8</code> string terminated with 
+     * <code>STRING_TERMINATOR</code>. The function will not read off the input 
+     * stream beyond the terminator, making it really easy to use for 
+     * interactive data exchange. The function reads in the stream in per-byte 
+     * fashion instead of buffering up data off the stream in memory.
      * 
      * @param s Socket handle to use
      * @return String representation of the received data
@@ -471,7 +368,7 @@ public class SockCopy {
             throw new IOException("connection lost before string termination");
         }
         
-        System.out.println("recv: \"" + new String(string, "UTF-8") + "\"");
+        Log.d(1, "recv: \"" + new String(string, "UTF-8") + "\"");
         return new String(string, 0, nr, "UTF-8");
     }    
     
@@ -486,12 +383,12 @@ public class SockCopy {
         private final File f;
         
         /**
-         * Construct a file entry with the File handle and the handle to the
-         * arbitrary parent. The parent is used to construct a relative path
-         * string
+         * Construct a file entry with the <code>File</code> handle and the 
+         * handle to the arbitrary parent. The parent is used to construct a 
+         * relative path string
          * 
          * @param parent Arbitrary parent directory level of the file
-         * @param file File handle
+         * @param file <code>File</code> handle
          */
         public FileEntry(File parent, File file) {
             this.f = file;
@@ -517,8 +414,9 @@ public class SockCopy {
         
         /**
          * Get file path relative to the specified parent. E.g. if the file
-         * is /home/user/downloads/test.zip and parent is /home/user this
-         * method will return downloads/test.zip
+         * is <code>/home/user/downloads/test.zip</codE> and parent is 
+         * <code>/home/user</code> this method will return 
+         * <code>downloads/test.zip</code>
          * 
          * @return File path relative to the specified parent
          */

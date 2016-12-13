@@ -36,13 +36,13 @@ import javax.swing.JProgressBar;
  */
 public class SockTest {
     public static void main(String args[]) {
-        if(args.length == 2 && args[0].equals("serve")) {
+        if(args.length == 3 && args[0].equals("serve")) {
             try {
                 ExecutorService pool = Executors.newFixedThreadPool(8);
                 ServerSocket ss = new ServerSocket(Integer.parseInt(args[1]));
                 while(true) {
                     try {
-                        pool.execute(new ClientHandler(ss.accept()));
+                        pool.execute(new ClientHandler(ss.accept(), args[2]));
                     } catch(IOException ioe) {
                         System.err.println(ioe);
                     }
@@ -50,14 +50,14 @@ public class SockTest {
             } catch(Exception e) {
                 e.printStackTrace();
             }
-        } else if(args.length == 2 && args[0].equals("interactive")) {
+        } else if(args.length == 3 && args[0].equals("interactive")) {
             try {
                 ExecutorService pool = Executors.newFixedThreadPool(8);
                 ServerSocket ss = new ServerSocket(Integer.parseInt(args[1]));
                 while(true) {
                     try {
-                        SockCopy.setStringTerminator((byte) 10);
-                        pool.execute(new ClientHandler(ss.accept()));
+                        Sock.setStringTerminator((byte) 10);
+                        pool.execute(new ClientHandler(ss.accept(), args[2]));
                     } catch(IOException ioe) {
                         System.err.println(ioe);
                     }
@@ -78,15 +78,15 @@ public class SockTest {
                     ProgressFrame pFrame = new ProgressFrame(p);
                     ProgressUpdater pUpdater = new ProgressUpdater(pFrame);
                     (new Thread(pUpdater)).start();
-                    SockCopy.send(s, "get " + path);
-                    SockCopy.get(s, ".", p);
-                    SockCopy.send(s, "quit");
+                    Sock.send(s, "get " + path);
+                    Sock.get(s, ".", p);
+                    Sock.send(s, "quit");
                     pUpdater.stop();
                     pFrame.dispose();
                 } else {
-                    SockCopy.send(s, "get " + path);
-                    SockCopy.get(s, ".", null);
-                    SockCopy.send(s, "quit");
+                    Sock.send(s, "get " + path);
+                    Sock.get(s, ".", null);
+                    Sock.send(s, "quit");
                 }
                 s.close();
             } catch(Exception e) {
@@ -97,7 +97,7 @@ public class SockTest {
                 ServerSocket ss = new ServerSocket(Integer.parseInt(args[1]));
                 String data = new String(Files.readAllBytes(Paths.get(args[2])), "UTF-8");
                 Socket s = ss.accept();
-                SockCopy.send(s, data);
+                Sock.send(s, data);
             } catch(Exception e) {
                 e.printStackTrace();
             }
@@ -107,15 +107,15 @@ public class SockTest {
                 String host = tokens[0];
                 int port = Integer.parseInt(tokens[1]);
                 Socket s = new Socket(host, port);
-                SockCopy.recv(s);
+                Sock.recv(s);
             } catch(Exception e) {
                 e.printStackTrace();
             }
         } else {
             System.err.println("usage: java -cp <javatools-jar> org.bbi.tools.net.SockTest <command> [options]");
             System.err.println("commands:");
-            System.err.println("    serve PORT");
-            System.err.println("    interactive PORT");
+            System.err.println("    serve PORT ROOTPATH");
+            System.err.println("    interactive PORT ROOTPATH");
             System.err.println("    get HOST:PORT:PATH [--progress]");
             System.err.println("    sendtext PORT FILE");
             System.err.println("    recvtext HOST:PORT");
@@ -176,17 +176,19 @@ public class SockTest {
     }
     
     static class ClientHandler implements Runnable {
-        private Socket s;
+        private final Socket s;
+        private final String root;
         
-        public ClientHandler(Socket s) {
+        public ClientHandler(Socket s, String root) {
             this.s = s;
+            this.root = root;
         }
         
         @Override
         public void run() {
             try {
                 System.out.println("new connection: " + s.getInetAddress().getHostAddress());
-                SockCopy.wait(s, null);
+                FileDownloadServer.wait(s, root, null);
                 s.close();
             } catch(IOException ioe) {
                 System.err.println(ioe);
