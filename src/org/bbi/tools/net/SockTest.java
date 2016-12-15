@@ -200,22 +200,6 @@ public class SockTest {
             } catch(Exception e) {
                 e.printStackTrace();
             }
-        } else if(args.length == 2 && args[0].equals("punchserver")) {
-            try {
-                pool.execute(new TCPHolePunchServer(Integer.parseInt(args[1])));
-            } catch(Exception e) {
-                e.printStackTrace();
-            }
-        } else if(args.length == 2 && args[0].equals("punchclient")) {
-            try {
-                String[] tokens = args[1].trim().split(":", 2);
-                String host = tokens[0];
-                int port = Integer.parseInt(tokens[1]);
-                TCPHolePunchClient c = new TCPHolePunchClient();
-                c.connect(host, port);
-            } catch(Exception e) {
-                e.printStackTrace();
-            }
         } else {
             System.err.println("usage: java -cp <javatools-jar> org.bbi.tools.net.SockTest <command> [options]");
             System.err.println("commands:");
