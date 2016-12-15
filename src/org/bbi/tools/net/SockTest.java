@@ -15,7 +15,6 @@
  */
 package org.bbi.tools.net;
 
-import java.nio.file.Files;
 import java.awt.BorderLayout;
 import java.awt.GridLayout;
 import java.io.BufferedReader;
@@ -25,7 +24,6 @@ import java.net.DatagramSocket;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.nio.file.Paths;
 import java.text.NumberFormat;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -34,180 +32,246 @@ import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JProgressBar;
 import org.bbi.tools.Log;
+import org.bbi.tools.Files7;
 
 /**
  *
  * @author wira
  */
 public class SockTest {
+    private static ExecutorService pool = Executors.newFixedThreadPool(8);
+    
     public static void main(String args[]) {
         Log.debugLevel = 0; 
-        ExecutorService pool = Executors.newFixedThreadPool(8);
+        String envBBIDebug;
+        if((envBBIDebug = System.getenv().get("BBI_DEBUG")) != null) {
+            Log.debugLevel = Integer.parseInt(envBBIDebug);
+            Log.d(0, "debug level set to " + Log.debugLevel);
+        }
+        
         if(args.length == 3 && args[0].equals("serve")) {
-            try {
-                ServerSocket ss = new ServerSocket(Integer.parseInt(args[1]));
-                while(true) {
-                    try {
-                        pool.execute(new ClientHandler(ss.accept(), args[2]));
-                    } catch(IOException ioe) {
-                        System.err.println(ioe);
-                    }
-                }
-            } catch(Exception e) {
-                e.printStackTrace();
-            }
+            serve(args);
         } else if(args.length == 3 && args[0].equals("udpserve")) {
-            try {
-                DatagramSocket ss = new DatagramSocket(Integer.parseInt(args[1]));
-                try {
-                    FileDownloadServer.wait(ss, args[2], null);
-                } catch(IOException ioe) {
-                    System.err.println(ioe);
-                }
-            } catch(Exception e) {
-                e.printStackTrace();
-            }
+            udpserve(args);
         } else if(args.length == 2 && args[0].equals("udpclient")) {
-            try {
-                DatagramSocket ss = new DatagramSocket(0);
-                BufferedReader r = new BufferedReader(new InputStreamReader(System.in));
-                String[] tokens = args[1].split(":");
-                String host = tokens[0];
-                int port = Integer.parseInt(tokens[1]);
-                InetSocketAddress addr = new InetSocketAddress(host, port);
-                // get a reader socket running
-                pool.execute(new UDPHandler(ss));
-                try {
-                    String l;
-                    while((l = r.readLine()) != null) {
-                        SockUDP.send(ss, addr, l);
-                    }
-                } catch(IOException ioe) {
-                    System.err.println(ioe);
-                }
-            } catch(Exception e) {
-                e.printStackTrace();
-            }
+            udpclient(args);
         } else if(args.length == 3 && args[0].equals("interactive")) {
-            try {
-                ServerSocket ss = new ServerSocket(Integer.parseInt(args[1]));
-                while(true) {
-                    try {
-                        Sock.setStringTerminator((byte) 10);
-                        pool.execute(new ClientHandler(ss.accept(), args[2]));
-                    } catch(IOException ioe) {
-                        System.err.println(ioe);
-                    }
-                }
-            } catch(Exception e) {
-                e.printStackTrace();
-            }
+            interactive(args);
         } else if(args.length >= 2 && args[0].equals("get")) {
-            try {
-                String[] tokens = args[1].split(":");
-                String host = tokens[0];
-                int port = Integer.parseInt(tokens[1]);
-                String path = tokens[2];
-                Socket s = new Socket(host, port);        
-                Progress p = null;
-                if(args.length == 3 && args[2].equals("--progress")) {
-                    p = new Progress();
-                    ProgressFrame pFrame = new ProgressFrame(p);
-                    ProgressUpdater pUpdater = new ProgressUpdater(pFrame);
-                    (new Thread(pUpdater)).start();
-                    Sock.send(s, "get " + path);
-                    Sock.get(s, ".", p);
-                    Sock.send(s, "quit");
-                    pUpdater.stop();
-                    pFrame.dispose();
-                } else {
-                    Sock.send(s, "get " + path);
-                    Sock.get(s, ".", null);
-                    Sock.send(s, "quit");
-                }
-                s.close();
-            } catch(Exception e) {
-                e.printStackTrace();              
-            }
+            get(args);
         } else if(args.length >= 2 && args[0].equals("udpget")) {
-            try {
-                String[] tokens = args[1].split(":");
-                String host = tokens[0];
-                int port = Integer.parseInt(tokens[1]);
-                String path = tokens[2];
-                DatagramSocket s = new DatagramSocket(0);      
-                InetSocketAddress addr = new InetSocketAddress(host, port);
-                Progress p = null;
-                if(args.length == 3 && args[2].equals("--progress")) {
-                    p = new Progress();
-                    ProgressFrame pFrame = new ProgressFrame(p);
-                    ProgressUpdater pUpdater = new ProgressUpdater(pFrame);
-                    (new Thread(pUpdater)).start();
-                    SockUDP.send(s, addr, "get " + path);
-                    SockUDP.get(s, ".", p);
-                    SockUDP.send(s, addr, "quit");
-                    pUpdater.stop();
-                    pFrame.dispose();
-                } else {
-                    SockUDP.send(s, addr, "get " + path);
-                    SockUDP.get(s, ".", null);
-                    SockUDP.send(s, addr, "quit");
-                }
-                s.close();
-            } catch(Exception e) {
-                e.printStackTrace();              
-            }
+            udpget(args);
         } else if(args.length == 3 && args[0].equals("sendtext")) {
-            try {
-                ServerSocket ss = new ServerSocket(Integer.parseInt(args[1]));
-                String data = new String(Files.readAllBytes(Paths.get(args[2])), "UTF-8");
-                Socket s = ss.accept();
-                Sock.send(s, data);
-            } catch(Exception e) {
-                e.printStackTrace();
-            }
+            sendtext(args);
         } else if(args.length == 2 && args[0].equals("recvtext")) {
-            try {
-                String[] tokens = args[1].split(":");
-                String host = tokens[0];
-                int port = Integer.parseInt(tokens[1]);
-                Socket s = new Socket(host, port);
-                Sock.recv(s);
-            } catch(Exception e) {
-                e.printStackTrace();
-            }
+            recvtext(args);
         } else if(args.length == 3 && args[0].equals("udpsendfile")) {
-            try {
-                DatagramSocket ss = new DatagramSocket();
-                ss.setSoTimeout(5000);
-                String[] tokens = args[1].split(":");
-                String host = tokens[0];
-                int port = Integer.parseInt(tokens[1]);
-                InetSocketAddress addr = new InetSocketAddress(host, port);
-                SockUDP.put(ss, addr, args[2], null);
-            } catch(Exception e) {
-                Log.err("exception: " + e);
-                e.printStackTrace();
-            }
+            udpsendfile(args);
         } else if(args.length == 3 && args[0].equals("udprecvfile")) {
-            try {
-                DatagramSocket ss = new DatagramSocket(Integer.parseInt(args[1]));
-                Progress p = new Progress();
-                ProgressFrame pFrame = new ProgressFrame(p);
-                ProgressUpdater pUpdater = new ProgressUpdater(pFrame);
-                (new Thread(pUpdater)).start();
-                SockUDP.get(ss, args[2], p);
-            } catch(Exception e) {
-                e.printStackTrace();
-            }
+            udprecvfile(args);
         } else {
             System.err.println("usage: java -cp <javatools-jar> org.bbi.tools.net.SockTest <command> [options]");
-            System.err.println("commands:");
-            System.err.println("    serve PORT ROOTPATH");
+            System.out.println();
+            System.err.println("tcp commands:");
+            System.err.println("    serve PORT ROOTPATH");            
             System.err.println("    interactive PORT ROOTPATH");
             System.err.println("    get HOST:PORT:PATH [--progress]");
             System.err.println("    sendtext PORT FILE");
             System.err.println("    recvtext HOST:PORT");
+            System.out.println();
+            System.out.println("udp commands:");
+            System.err.println("    udpserve PORT ROOTPATH");
+            System.err.println("    udpclient HOST:PORT");
+            System.err.println("    udpget HOST:PORT:PATH [--progress]");
+            System.err.println("    udpsendfile HOST:PORT FILE");
+            System.err.println("    udprecvfile PORT DESTDIR");
+        }
+    }
+    
+    public static void serve(String[] args) {
+        try {
+            ServerSocket ss = new ServerSocket(Integer.parseInt(args[1]));
+            while(true) {
+                try {
+                    pool.execute(new ClientHandler(ss.accept(), args[2]));
+                } catch(IOException ioe) {
+                    System.err.println(ioe);
+                }
+            }
+        } catch(Exception e) {
+            e.printStackTrace();
+        }
+    }
+    
+    public static void interactive(String[] args) {
+        try {
+            ServerSocket ss = new ServerSocket(Integer.parseInt(args[1]));
+            while(true) {
+                try {
+                    Sock.setStringTerminator((byte) 10);
+                    pool.execute(new ClientHandler(ss.accept(), args[2]));
+                } catch(IOException ioe) {
+                    System.err.println(ioe);
+                }
+            }
+        } catch(Exception e) {
+            e.printStackTrace();
+        }
+    }
+    
+    public static void get(String[] args) {
+        try {
+            String[] tokens = args[1].split(":");
+            String host = tokens[0];
+            int port = Integer.parseInt(tokens[1]);
+            String path = tokens[2];
+            Socket s = new Socket(host, port);        
+            Progress p = null;
+            if(args.length == 3 && args[2].equals("--progress")) {
+                p = new Progress();
+                ProgressFrame pFrame = new ProgressFrame(p);
+                ProgressUpdater pUpdater = new ProgressUpdater(pFrame);
+                (new Thread(pUpdater)).start();
+                Sock.send(s, "get " + path);
+                Sock.get(s, ".", p);
+                Sock.send(s, "quit");
+                pUpdater.stop();
+                pFrame.dispose();
+            } else {
+                Sock.send(s, "get " + path);
+                Sock.get(s, ".", null);
+                Sock.send(s, "quit");
+            }
+            s.close();
+        } catch(Exception e) {
+            e.printStackTrace();              
+        }
+    }
+    
+    public static void sendtext(String[] args) {
+        try {
+            ServerSocket ss = new ServerSocket(Integer.parseInt(args[1]));
+            String data = new String(Files7.readAllBytes(args[2]), "UTF-8");
+            Socket s = ss.accept();
+            Sock.send(s, data);
+            s.close();
+            ss.close();
+        } catch(Exception e) {
+            e.printStackTrace();
+        }
+    }
+    
+    public static void recvtext(String[] args) {
+        try {
+            String[] tokens = args[1].split(":");
+            String host = tokens[0];
+            int port = Integer.parseInt(tokens[1]);
+            Socket s = new Socket(host, port);
+            Sock.recv(s);
+            s.close();
+        } catch(Exception e) {
+            e.printStackTrace();
+        }
+    }
+    
+    public static void udpserve(String[] args) {
+        try {
+            DatagramSocket ss = new DatagramSocket(Integer.parseInt(args[1]));
+            try {
+                FileDownloadServer.wait(ss, args[2], null);
+            } catch(IOException ioe) {
+                System.err.println(ioe);
+            }
+        } catch(Exception e) {
+            e.printStackTrace();
+        }
+    }
+    
+    public static void udpclient(String[] args) {
+        try {
+            DatagramSocket ss = new DatagramSocket(0);
+            BufferedReader r = new BufferedReader(new InputStreamReader(System.in));
+            String[] tokens = args[1].split(":");
+            String host = tokens[0];
+            int port = Integer.parseInt(tokens[1]);
+            InetSocketAddress addr = new InetSocketAddress(host, port);
+            // get a reader socket running
+            pool.execute(new UDPHandler(ss));
+            try {
+                String l;
+                while((l = r.readLine()) != null) {
+                    SockUDP.send(ss, addr, l);
+                    if(l.equals("quit")) {
+                        System.exit(0);
+                    }
+                }
+            } catch(IOException ioe) {
+                System.err.println(ioe);
+            }
+        } catch(Exception e) {
+            e.printStackTrace();
+        }
+    }
+    
+    public static void udpget(String[] args) {
+        try {
+            String[] tokens = args[1].split(":");
+            String host = tokens[0];
+            int port = Integer.parseInt(tokens[1]);
+            String path = tokens[2];
+            DatagramSocket s = new DatagramSocket(0);      
+            InetSocketAddress addr = new InetSocketAddress(host, port);
+            Progress p = null;
+            if(args.length == 3 && args[2].equals("--progress")) {
+                p = new Progress();
+                ProgressFrame pFrame = new ProgressFrame(p);
+                ProgressUpdater pUpdater = new ProgressUpdater(pFrame);
+                pool.execute(pUpdater);
+                SockUDP.send(s, addr, "get " + path);
+                SockUDP.get(s, ".", p);
+                SockUDP.send(s, addr, "quit");
+                pUpdater.stop();
+                pFrame.dispose();
+            } else {
+                SockUDP.send(s, addr, "get " + path);
+                SockUDP.get(s, ".", null);
+                SockUDP.send(s, addr, "quit");
+            }
+            s.close();
+        } catch(Exception e) {
+            e.printStackTrace();              
+        }
+    }
+    
+    public static void udpsendfile(String[] args) {
+        try {
+            DatagramSocket ss = new DatagramSocket();
+            ss.setSoTimeout(5000);
+            String[] tokens = args[1].split(":");
+            String host = tokens[0];
+            int port = Integer.parseInt(tokens[1]);
+            InetSocketAddress addr = new InetSocketAddress(host, port);
+            SockUDP.put(ss, addr, args[2], null);
+            ss.close();
+        } catch(Exception e) {
+            Log.err("exception: " + e);
+            e.printStackTrace();
+        }
+    }
+    
+    public static void udprecvfile(String[] args) {
+        try {
+            DatagramSocket ss = new DatagramSocket(Integer.parseInt(args[1]));
+            Progress p = new Progress();
+            ProgressFrame pFrame = new ProgressFrame(p);
+            ProgressUpdater pUpdater = new ProgressUpdater(pFrame);
+            pool.execute(pUpdater);
+            SockUDP.get(ss, args[2], p);
+            ss.close();
+            pUpdater.stop();
+            pFrame.dispose();
+        } catch(Exception e) {
+            e.printStackTrace();
         }
     }
     

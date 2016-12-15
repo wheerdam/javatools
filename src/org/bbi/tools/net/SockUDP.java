@@ -424,7 +424,7 @@ public class SockUDP {
     public static void send(DatagramSocket s, SocketAddress addr, 
             String utf8) throws IOException {        
         byte[] utf8Bytes = utf8.getBytes(StandardCharsets.UTF_8);
-        Log.d(1, "udpsend: \"" + utf8 + "\"");
+        Log.d(2, "udpsend: \"" + utf8 + "\"");
         s.send(new DatagramPacket(utf8Bytes, utf8Bytes.length, addr));
     }    
     
@@ -443,7 +443,7 @@ public class SockUDP {
         byte[] data = new byte[packet.getLength()];
         System.arraycopy(receiveBuffer, 0, data, 0, data.length);
         Payload payload = new Payload(data, packet.getSocketAddress());
-        Log.d(1, "udprecv: \"" + payload.utf8() + "\"");
+        Log.d(2, "udprecv: \"" + payload.utf8() + "\"");
         return payload;
     }    
 }

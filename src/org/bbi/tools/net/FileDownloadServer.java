@@ -18,6 +18,7 @@ package org.bbi.tools.net;
 import java.io.File;
 import java.io.IOException;
 import java.net.DatagramSocket;
+import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.net.SocketAddress;
 import java.nio.charset.StandardCharsets;
@@ -25,6 +26,8 @@ import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.HashMap;
 import org.bbi.tools.FileEntry;
 import org.bbi.tools.Log;
 import static org.bbi.tools.FileEntry.populateFileList;
@@ -38,10 +41,12 @@ public class FileDownloadServer {
     public static void wait(DatagramSocket s, String root, Progress p)
             throws IOException {
         String line;
+        String addr;
         String[] tokens;
         String effectivePath;
-        SocketAddress source;
+        InetSocketAddress source;
         Payload payload;
+        Map<String, String> clientPaths = new HashMap<>();
         File rootDirectory = new File(root);
         if(!rootDirectory.exists()) {
             Log.err(root + " does not exist");
@@ -51,7 +56,8 @@ public class FileDownloadServer {
             Log.err(root + " is not a directory");
             return;
         }
-        String currentPath = rootDirectory.getCanonicalPath() + "/";
+        String rootPath =  rootDirectory.getCanonicalPath() + "/";
+        String currentPath;
         boolean quit = false;
         Log.d(0, "udp listening");
         while(!quit) {
@@ -60,7 +66,13 @@ public class FileDownloadServer {
             if(line.endsWith("\n")) {
                 line = line.substring(0, line.length()-1);
             }
-            source = payload.getSocketAddress();
+            source = (InetSocketAddress) payload.getSocketAddress();
+            addr = source.getAddress().getHostAddress() + ":" + source.getPort();
+            if(!clientPaths.containsKey(addr)) {
+                clientPaths.put(addr, rootPath);
+                Log.d(1, "new client: " + addr);
+            }
+            currentPath = clientPaths.get(addr);
             tokens = line.split(" ", 2);
             File f;
             List<FileEntry> fileList;
@@ -80,7 +92,8 @@ public class FileDownloadServer {
                         SockUDP.put(s, source, effectivePath, p);
                         break;
                     case "quit":
-                        quit = true;
+                        clientPaths.remove(addr);
+                        Log.d(1, "removing from known list " + addr);
                         break;
                     case "ls":
                         if(tokens.length < 2) {
@@ -168,6 +181,8 @@ public class FileDownloadServer {
                                 break;
                             }
                             currentPath = f.getCanonicalPath() + "/";
+                            // update current path for this host
+                            clientPaths.put(addr, currentPath);
                             SockUDP.send(s, source, currentPath);
                         }
                         break;
