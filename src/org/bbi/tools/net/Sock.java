@@ -21,10 +21,17 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.DatagramPacket;
+import java.net.DatagramSocket;
 import java.net.Socket;
+import java.net.SocketAddress;
+import java.nio.charset.StandardCharsets;
 import java.text.NumberFormat;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import org.bbi.tools.FileEntry;
 import org.bbi.tools.Log;
 
 /**
@@ -36,25 +43,25 @@ public class Sock {
     /**
      * Size of the buffer used to send data
      */
-    private static int SEND_BUFFER_SIZE = 8192;
+    private static int FILE_READ_BUFFER_SIZE = 8192;
     
     /**
      * Size of the buffer used to receive data
      */
-    private static int RECEIVE_BUFFER_SIZE = 32768;
+    private static int RECEIVE_BUFFER_SIZE = 65536;
     
     /**
      * String terminator for send and receive methods
      */
-    private static byte STRING_TERMINATOR = 0;
+    private static byte STRING_TERMINATOR = 0;    
     
     /**
      * Set a new send buffer size for the class
      * 
      * @param n New buffer size in BYTES
      */
-    public static void setSendBufferSize(int n) {
-        SEND_BUFFER_SIZE = n;
+    public static void setReadBufferSize(int n) {
+        FILE_READ_BUFFER_SIZE = n;
     }
     
     /**
@@ -92,11 +99,11 @@ public class Sock {
         List<FileEntry> fileList = new ArrayList<>();
         File file = new File(fileName);
         FileInputStream in;
-        byte[] sendBuffer = new byte[SEND_BUFFER_SIZE];
+        byte[] fileReadBuffer = new byte[FILE_READ_BUFFER_SIZE];
         int nr;
         try {
             long totalBytes = 0L;
-            populateFileList(file.getParentFile(), file, fileList, true);
+            FileEntry.populateFileList(file.getParentFile(), file, fileList, true);
             send(s, String.valueOf(fileList.size()));
             for(FileEntry f : fileList) {
                 send(s, String.valueOf(f.getFile().length()) + " " +
@@ -123,8 +130,8 @@ public class Sock {
                         + " " + f.getRelativePath());
                 // transfer bytes
                 in = new FileInputStream(fileHandle);
-                while((nr = in.read(sendBuffer)) != -1) {
-                    s.getOutputStream().write(sendBuffer, 0, nr);
+                while((nr = in.read(fileReadBuffer)) != -1) {
+                    s.getOutputStream().write(fileReadBuffer, 0, nr);
                     if(p != null) {
                         p.currentFileCopied += nr;
                         p.copiedTotalBytes += nr;
@@ -133,62 +140,13 @@ public class Sock {
                 in.close();
             }
             s.getOutputStream().flush();
-            if(!(d = recv(s)).equals("done")) {
+            if(!(d = Sock.recv(s)).equals("done")) {
                 Log.err("illegal termination line: " + d);
             }
         } catch(IOException ioe) {
             send(s, "-1");
         }        
-    }
-    
-    /**
-     * Traverse through a directory and build a file list
-     * 
-     * @param parent Parent directory to construct a relative path for the file entry
-     * @param f Path to traverse
-     * @param fileList A list of FileEntry that will be populated
-     * @param recursive Recurse into subdirectories
-     * @throws IOException if an I/O exception occurs 
-     */
-    public static void populateFileList(File parent, File f, 
-            List<FileEntry> fileList,  boolean recursive)
-            throws IOException {
-        if(!f.exists()) {
-            throw new IOException("unable to open " + f.getName());
-        }
-        if(f.isDirectory() && f.listFiles() != null) {
-            for(File file : f.listFiles()) {
-                if(recursive && file.isDirectory()) {
-                    populateFileList(parent, file, fileList, true);
-                } else {
-                    fileList.add(new FileEntry(parent, file));
-                }
-            }
-        } else {
-            fileList.add(new FileEntry(parent, f));
-        }
-    }
-    
-    /**
-     * Recursively create parent directories
-     * 
-     * @param f Highest level directory
-     * @throws IOException if an I/O exception occurs 
-     */
-    private static void createParentDirectory(File f) throws IOException {
-        if(f == null) {
-            return;
-        }
-        
-        if(f.getParentFile() != null && !f.getParentFile().exists()) {
-            createParentDirectory(f.getParentFile());            
-        }
-        
-        if(!f.exists()) {
-            System.out.println("mkdir " + f.getAbsolutePath());
-            f.mkdir();
-        }
-    }
+    }            
     
     /**
      * Recursively receive multiple files over the socket. The server must use
@@ -210,7 +168,7 @@ public class Sock {
         byte[] overflowBuffer = null;
         
         // get total number of files
-        String numOfFilesString = recv(s);
+        String numOfFilesString = Sock.recv(s);
         FileOutputStream out;
         int numOfFiles = Integer.parseInt(numOfFilesString);
         if(numOfFiles < 0) {
@@ -222,14 +180,14 @@ public class Sock {
         String[] fileNames = new String[numOfFiles];
         long[] fileSizes = new long[numOfFiles];
         for(int i = 0; i < numOfFiles; i++) {
-            tokens = recv(s).split(" ", 2);
+            tokens = Sock.recv(s).split(" ", 2);
             fileNames[i] = tokens[1];
             fileSizes[i] = Long.parseLong(tokens[0]);
         }
         
         // get total number of bytes so the user knows how big the incoming
         // transmission is
-        long totalBytes = Long.parseLong(recv(s));
+        long totalBytes = Long.parseLong(Sock.recv(s));
         Log.d(0, "number of files to fetch: " + numOfFiles + " (" +
                 NumberFormat.getIntegerInstance().format(totalBytes) +
                 " bytes)");
@@ -246,7 +204,7 @@ public class Sock {
                 p.name = fileNames[i];
             }
             File f = new File(destDir + File.separator + fileNames[i]);
-            createParentDirectory(f.getParentFile());
+            FileEntry.createParentDirectory(f.getParentFile());
             Log.d(0, "get " + String.format("[%1$15s]", 
                     NumberFormat.getIntegerInstance().format(fileSizes[i])) + " "
                     + destDir + File.separator + fileNames[i]);
@@ -314,8 +272,9 @@ public class Sock {
         Log.d(0, NumberFormat.getIntegerInstance().format(totalBytes) + " bytes in " +
                 String.format("%.3f", seconds) + " seconds (" +
                 String.format("%.2f", speed) + " KiB/s)");
-    }            
+    }
     
+        
     /**
      * Send a string through the socket as <code>UTF-8</code> terminated with 
      * <code>STRING_TERMINATOR</code>
@@ -327,7 +286,7 @@ public class Sock {
     public static void send(Socket s, String data) throws IOException {
         Log.d(1, "send: \"" + data + "\"");
         OutputStream out = s.getOutputStream();
-        out.write(data.getBytes("UTF-8"));
+        out.write(data.getBytes(StandardCharsets.UTF_8));
         out.write(STRING_TERMINATOR);
         out.flush();
     }
@@ -368,78 +327,7 @@ public class Sock {
             throw new IOException("connection lost before string termination");
         }
         
-        Log.d(1, "recv: \"" + new String(string, "UTF-8") + "\"");
-        return new String(string, 0, nr, "UTF-8");
-    }    
-    
-    /**
-     * A utility class that describes a file and its relation to an arbitrary
-     * parent
-     */
-    static class FileEntry {
-        private final String fileName;
-        private final String relativePath;
-        private final String parentPath;
-        private final File f;
-        
-        /**
-         * Construct a file entry with the <code>File</code> handle and the 
-         * handle to the arbitrary parent. The parent is used to construct a 
-         * relative path string
-         * 
-         * @param parent Arbitrary parent directory level of the file
-         * @param file <code>File</code> handle
-         */
-        public FileEntry(File parent, File file) {
-            this.f = file;
-            fileName = file.getName();
-            if(parent != null) {
-                parentPath = parent.getAbsolutePath();
-            } else {
-                parentPath = ".";
-            }
-            relativePath = parent != null ? 
-                    file.getAbsolutePath().substring(parentPath.length()).substring(1) :
-                    "./" + file.getName();
-        }
-        
-        /**
-         * Get file name of the entry
-         * 
-         * @return File name
-         */
-        public String getName() {
-            return fileName;
-        }
-        
-        /**
-         * Get file path relative to the specified parent. E.g. if the file
-         * is <code>/home/user/downloads/test.zip</codE> and parent is 
-         * <code>/home/user</code> this method will return 
-         * <code>downloads/test.zip</code>
-         * 
-         * @return File path relative to the specified parent
-         */
-        public String getRelativePath() {
-            return relativePath;
-        }
-        
-        /**
-         * Get parent path specified by the user
-         * 
-         * @return Parent path
-         */
-        public String getParentPath() {
-            return parentPath;
-        }
-        
-        /**
-         * Get file handle
-         * 
-         * @return File handle
-         */
-        public File getFile() {
-            return f;
-        }
-    }
+        Log.d(1, "recv: \"" + new String(string, StandardCharsets.UTF_8) + "\"");
+        return new String(string, 0, nr, StandardCharsets.UTF_8);
+    }            
 }

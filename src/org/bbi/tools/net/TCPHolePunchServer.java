@@ -28,6 +28,8 @@ import java.util.concurrent.Executors;
 import org.bbi.tools.Log;
 import static org.bbi.tools.net.Sock.recv;
 import static org.bbi.tools.net.Sock.send;
+import static org.bbi.tools.net.Sock.recv;
+import static org.bbi.tools.net.Sock.send;
 
 /**
  *
@@ -87,6 +89,10 @@ public class TCPHolePunchServer implements Runnable {
         clientList.remove(c);
     }
     
+    private synchronized Socket getClientSocket(int index) {
+        return clientList.get(index).getSocket();
+    }
+    
     private synchronized boolean doesIDExist(long id) {
         for(Client c : clientList) {
             if(id == c.getRandomID()) {
@@ -106,7 +112,7 @@ public class TCPHolePunchServer implements Runnable {
                        c.getPublicSocketAddress().getPort() + " local=" +
                        c.getPrivateAddress().getAddress().getHostAddress() + ":" +
                        c.getPrivateAddress().getPort() + " inetAddress=" +
-                       c.getPublicAddress().toString();
+                       c.getPublicAddress().getHostAddress() + ":" + c.getPublicPort();
             i++;
         }
         return list;
@@ -115,6 +121,7 @@ public class TCPHolePunchServer implements Runnable {
     class Client implements Runnable {
         private final Socket s;
         private InetAddress publicAddress;
+        private int publicPort;
         private InetSocketAddress publicSocketAddress;
         private InetSocketAddress privateAddress;
         private boolean disconnect = false;
@@ -140,14 +147,26 @@ public class TCPHolePunchServer implements Runnable {
         public InetSocketAddress getPrivateAddress() {
             return privateAddress;
         }
+        
+        public int getPublicPort() {
+            return publicPort;
+        }
+        
+        public Socket getSocket() {
+            return s;
+        }
 
         @Override
         public void run() {
             String d;
             String[] tokens;
             long tempID;
+            String remoteAddress;
             publicSocketAddress = (InetSocketAddress) s.getRemoteSocketAddress();
             publicAddress = s.getInetAddress();
+            publicPort = s.getPort();
+            remoteAddress = publicSocketAddress.getAddress().getHostAddress() + ":" +
+                    publicSocketAddress.getPort();
             try {
                 Log.d(0, "assigning random ID");
                 do {
@@ -160,12 +179,11 @@ public class TCPHolePunchServer implements Runnable {
                 tokens = d.trim().split(":", 2);
                 privateAddress = new InetSocketAddress(
                         tokens[0], Integer.parseInt(tokens[1]));
-                Log.d(0, "new connection: " +
-                         publicSocketAddress.getAddress().getHostAddress() + ":" +
-                         publicSocketAddress.getPort() + " local=" +
+                Log.d(0, "new connection(" + s.getLocalPort() + "): " +
+                         remoteAddress + " local=" +
                          privateAddress.getAddress().getHostAddress() + ":" +
                          privateAddress.getPort() + " inetAddress=" +
-                         publicAddress.toString()
+                         s.getInetAddress().getHostAddress() + ":" + s.getPort()
                 );
                 while(!disconnect) {
                     try {
@@ -174,9 +192,28 @@ public class TCPHolePunchServer implements Runnable {
                         switch(tokens[0]) {
                             case "list":
                                 String[] clientsInfo = getClientsInfo();
-                                send(s, String.valueOf(clientsInfo.length));
+                                send(s, "list " + String.valueOf(clientsInfo.length));
                                 for(String l : getClientsInfo()) {
                                     send(s, l);
+                                }
+                                break;
+                            case "connect":
+                                Log.d(0, "peering request from " +
+                                        String.format("%08X", randomID) +
+                                        " to " + tokens[1]);
+                                long requestedClientID = Long.parseLong(tokens[1], 16);
+                                long clientID;
+                                int i = 0;
+                                for(String l : getClientsInfo()) {
+                                    clientID = Long.parseLong(l.split("\\s+")[0], 16);
+                                    if(clientID == requestedClientID) {
+                                        send(getClientSocket(i), "request " + 
+                                                String.format("%08X", randomID));
+                                        // sayonara
+                                        // disconnect();
+                                        break;
+                                    }
+                                    i++;
                                 }
                                 break;
                         }
