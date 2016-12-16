@@ -50,7 +50,7 @@ public class SockUDP {
     /**
      * Maximum buffer size for PUT to write through with single SEND call
      */
-    public static int UDP_PUT_BUFFER_SIZE = 2*UDP_MAX_DATAGRAM_SIZE-2*4; 
+    public static int UDP_PUT_BUFFER_SIZE = 2*(UDP_MAX_DATAGRAM_SIZE-4); 
     
     /**
      * Delay between broken up data pieces
