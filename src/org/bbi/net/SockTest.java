@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.bbi.tools.net;
+package org.bbi.net;
 
 import java.awt.BorderLayout;
 import java.awt.GridLayout;
@@ -381,7 +381,7 @@ public class SockTest {
             Payload p;
             try {
                 while(!quit) {
-                    p = SockUDP.read(s);
+                    p = SockUDP.get(s, null);
                     Log.d(0, p.utf8());
                 }                
             } catch(IOException ioe) {

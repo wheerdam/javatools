@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.bbi.tools.net;
+package org.bbi.net;
 
 /**
  * Holds information about a file transfer being done by either 

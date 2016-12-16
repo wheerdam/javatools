@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.bbi.tools.net;
+package org.bbi.net;
 
 import java.io.File;
 import java.io.IOException;
@@ -103,21 +103,23 @@ public class FileDownloadServer {
                                 currentPath + tokens[1];
                         }
                         if(!effectivePath.startsWith(root)) {
-                            SockUDP.write(s, source, "illegal path");
+                            udputf8(s, source, "illegal path");
                             break;
                         }
                         f = new File(effectivePath);
                         fileList = new ArrayList<>();
                         populateFileList(f.getParentFile(), f, fileList, false);
+                        udputf8(s, source, effectivePath + ": " + 
+                                           fileList.size() + " files");
                         for(FileEntry e : fileList) {
                             if(e.getFile().isDirectory()) {
-                                SockUDP.write(s, source, String.format("%1$15s", 
-                                                "") + "  " + e.getName());
+                                udputf8(s, source, String.format("%1$15s", 
+                                                "[dir]") + "  " + e.getName());
                             }
                         }
                         for(FileEntry e : fileList) {
                             if(!e.getFile().isDirectory()) {
-                                SockUDP.write(s, source, String.format("%1$15s", 
+                                udputf8(s, source, String.format("%1$15s", 
                                                 e.getFile().length()) + "  " +
                                                         e.getName());
                             }
@@ -131,7 +133,7 @@ public class FileDownloadServer {
                                 currentPath + tokens[1];
                         }
                         if(!effectivePath.startsWith(root)) {
-                            SockUDP.write(s, source, "illegal path");
+                            udputf8(s, source, "illegal path");
                             break;
                         }
                         f = new File(effectivePath);
@@ -143,7 +145,7 @@ public class FileDownloadServer {
                                 size += e.getFile().length();
                             }
                         }
-                        SockUDP.write(s, source, String.valueOf(size));
+                        udputf8(s, source, String.valueOf(size));
                         break;
                     case "cat":
                         if(tokens.length < 2) {
@@ -152,10 +154,10 @@ public class FileDownloadServer {
                         effectivePath = tokens[1].startsWith("/") ? tokens[1] :
                                 currentPath + tokens[1];
                         if(!effectivePath.startsWith(root)) {
-                            SockUDP.write(s, source, "illegal path");
+                            udputf8(s, source, "illegal path");
                             break;
                         }
-                        SockUDP.write(s, source, new String(
+                        udputf8(s, source, new String(
                                 Files.readAllBytes(Paths.get(effectivePath)),
                                 "UTF-8"));
                         break;
@@ -177,17 +179,17 @@ public class FileDownloadServer {
                         }
                         if(f.exists() && f.isDirectory()) {
                             if(!(f.getCanonicalPath() + "/").startsWith(root)) {
-                                SockUDP.write(s, source, "illegal path");
+                                udputf8(s, source, "illegal path");
                                 break;
                             }
                             currentPath = f.getCanonicalPath() + "/";
                             // update current path for this host
                             clientPaths.put(addr, currentPath);
-                            SockUDP.write(s, source, currentPath);
+                            udputf8(s, source, currentPath);
                         }
                         break;
                     case "pwd":
-                        SockUDP.write(s, source, currentPath);
+                        udputf8(s, source, currentPath);
                         break;
                 }
             } catch(Exception e) {
@@ -202,12 +204,12 @@ public class FileDownloadServer {
     
     private static void udputf8(DatagramSocket s, SocketAddress source, String str) 
             throws IOException {
-        SockUDP.send(s, source, str.getBytes(StandardCharsets.UTF_8), null);
+        SockUDP.put(s, source, str.getBytes(StandardCharsets.UTF_8), null);
     }
     
     /**
      * TCP interactive file server. The client must write the 'quit' command for 
- the server to escape this mode
+     * the server to escape this mode
      * 
      * @param s Socket handle to use
      * @param root Root directory, client won't be able to access a higher level
@@ -267,10 +269,12 @@ public class FileDownloadServer {
                         f = new File(effectivePath);
                         fileList = new ArrayList<>();
                         populateFileList(f.getParentFile(), f, fileList, false);
+                        Sock.write(s, effectivePath + ": " + 
+                                      fileList.size() + " files");
                         for(FileEntry e : fileList) {
                             if(e.getFile().isDirectory()) {
                                 Sock.write(s, String.format("%1$15s", 
-                                        "") + "  " + e.getName());
+                                        "[dir]") + "  " + e.getName());
                             }
                         }
                         for(FileEntry e : fileList) {

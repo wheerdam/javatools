@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.bbi.tools.net;
+package org.bbi.net;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -384,7 +384,7 @@ public class SockUDP {
      * 
      * <p>Note that there is no synchronization between this method and its
      * receiving counterpart. Sending too big of data broken into many UDP
-     * packets may result in dropped packs on the remote host!</p>
+     * packets may result in dropped packets on the remote host!</p>
      * 
      * @param s DatagramSocket handle to use
      * @param addr Address and port to transmit the data to
