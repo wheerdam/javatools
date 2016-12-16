@@ -43,10 +43,22 @@ public class SockTest {
     
     public static void main(String args[]) {
         Log.debugLevel = 0; 
-        String envBBIDebug;
+        String env, envBBIDebug;
         if((envBBIDebug = System.getenv().get("BBI_DEBUG")) != null) {
             Log.debugLevel = Integer.parseInt(envBBIDebug);
             Log.d(0, "debug level set to " + Log.debugLevel);
+        }
+        if((env = System.getenv("UDP_PUT_BUFFER_SIZE")) != null) {
+            // multiples of the built-in max datagram size
+            int i = Integer.parseInt(env);
+            SockUDP.UDP_PUT_BUFFER_SIZE = i*SockUDP.UDP_MAX_DATAGRAM_SIZE - 
+                    i*4;
+            Log.d(0, "UDP_PUT_BUFFER_SIZE set to " + SockUDP.UDP_PUT_BUFFER_SIZE);
+        }
+        if((env = System.getenv("UDP_PIECE_SEND_DELAY_MS")) != null) {
+            // multiples of the built-in max datagram size
+            SockUDP.PIECE_SEND_DELAY_MS = Integer.parseInt(env);
+            Log.d(0, "UDP_PIECE_SEND_DELAY_MS set to " + SockUDP.PIECE_SEND_DELAY_MS);
         }
         
         if(args.length == 3 && args[0].equals("serve")) {
@@ -132,15 +144,15 @@ public class SockTest {
                 ProgressFrame pFrame = new ProgressFrame(p);
                 ProgressUpdater pUpdater = new ProgressUpdater(pFrame);
                 (new Thread(pUpdater)).start();
-                Sock.send(s, "get " + path);
+                Sock.write(s, "get " + path);
                 Sock.get(s, ".", p);
-                Sock.send(s, "quit");
+                Sock.write(s, "quit");
                 pUpdater.stop();
                 pFrame.dispose();
             } else {
-                Sock.send(s, "get " + path);
+                Sock.write(s, "get " + path);
                 Sock.get(s, ".", null);
-                Sock.send(s, "quit");
+                Sock.write(s, "quit");
             }
             s.close();
         } catch(Exception e) {
@@ -153,7 +165,7 @@ public class SockTest {
             ServerSocket ss = new ServerSocket(Integer.parseInt(args[1]));
             String data = new String(Files7.readAllBytes(args[2]), "UTF-8");
             Socket s = ss.accept();
-            Sock.send(s, data);
+            Sock.write(s, data);
             s.close();
             ss.close();
         } catch(Exception e) {
@@ -167,7 +179,7 @@ public class SockTest {
             String host = tokens[0];
             int port = Integer.parseInt(tokens[1]);
             Socket s = new Socket(host, port);
-            Sock.recv(s);
+            Sock.read(s);
             s.close();
         } catch(Exception e) {
             e.printStackTrace();
@@ -200,7 +212,7 @@ public class SockTest {
             try {
                 String l;
                 while((l = r.readLine()) != null) {
-                    SockUDP.send(ss, addr, l);
+                    SockUDP.write(ss, addr, l);
                     if(l.equals("quit")) {
                         System.exit(0);
                     }
@@ -227,15 +239,16 @@ public class SockTest {
                 ProgressFrame pFrame = new ProgressFrame(p);
                 ProgressUpdater pUpdater = new ProgressUpdater(pFrame);
                 pool.execute(pUpdater);
-                SockUDP.send(s, addr, "get " + path);
+                SockUDP.write(s, addr, "get " + path);
                 SockUDP.get(s, ".", p);
-                SockUDP.send(s, addr, "quit");
+                SockUDP.write(s, addr, "quit");
                 pUpdater.stop();
                 pFrame.dispose();
+                pool.shutdownNow();
             } else {
-                SockUDP.send(s, addr, "get " + path);
+                SockUDP.write(s, addr, "get " + path);
                 SockUDP.get(s, ".", null);
-                SockUDP.send(s, addr, "quit");
+                SockUDP.write(s, addr, "quit");
             }
             s.close();
         } catch(Exception e) {
@@ -251,7 +264,7 @@ public class SockTest {
             String host = tokens[0];
             int port = Integer.parseInt(tokens[1]);
             InetSocketAddress addr = new InetSocketAddress(host, port);
-            SockUDP.put(ss, addr, args[2], null);
+            SockUDP.put(ss, addr, Files7.readAllBytes(args[2]), null);
             ss.close();
         } catch(Exception e) {
             Log.err("exception: " + e);
@@ -266,7 +279,8 @@ public class SockTest {
             ProgressFrame pFrame = new ProgressFrame(p);
             ProgressUpdater pUpdater = new ProgressUpdater(pFrame);
             pool.execute(pUpdater);
-            SockUDP.get(ss, args[2], p);
+            // SockUDP.get(ss, args[2], p);
+            Files7.write(args[2], SockUDP.get(ss, p).get());
             ss.close();
             pUpdater.stop();
             pFrame.dispose();
@@ -367,7 +381,7 @@ public class SockTest {
             Payload p;
             try {
                 while(!quit) {
-                    p = SockUDP.recv(s);
+                    p = SockUDP.read(s);
                     Log.d(0, p.utf8());
                 }                
             } catch(IOException ioe) {

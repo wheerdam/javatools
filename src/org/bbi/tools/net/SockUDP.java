@@ -37,20 +37,25 @@ import org.bbi.tools.Log;
  */
 public class SockUDP {
     /**
-     * Size of the buffer used to send data
+     * Size of the buffer used to read file from disk
      */
-    private static int FILE_READ_BUFFER_SIZE = 8192;
+    public static int FILE_READ_BUFFER_SIZE = 8192;
     
     /**
      * Maximum UDP payload size. Must be greater than FILE_READ_BUFFER_SIZE
      * for proper UDP PUT operation
      */
-    private static final int UDP_MAX_DATAGRAM_SIZE = 16384;// 32768;
+    public static final int UDP_MAX_DATAGRAM_SIZE = 16384;
     
     /**
-     * Maximum buffer size for PUT to send through with single SEND call
+     * Maximum buffer size for PUT to write through with single SEND call
      */
-    private static final int UDP_PUT_BUFFER_SIZE = 2*UDP_MAX_DATAGRAM_SIZE; 
+    public static int UDP_PUT_BUFFER_SIZE = 2*UDP_MAX_DATAGRAM_SIZE-2*4; 
+    
+    /**
+     * Delay between broken up data pieces
+     */
+    public static int PIECE_SEND_DELAY_MS = 0;
     
     /**
      * Recursively transfer files to a client using a UDP socket. If the file
@@ -76,7 +81,7 @@ public class SockUDP {
         int nr;
         try {
             long totalBytes = 0L;
-            // generate and send file list (preamble)
+            // generate and write file list (preamble)
             FileEntry.populateFileList(file.getParentFile(), file, fileList, true);
             strBuf = new StringBuilder();
             strBuf.append(String.valueOf(fileList.size()));
@@ -90,8 +95,8 @@ public class SockUDP {
             }
             strBuf.append(String.valueOf(totalBytes));
             strBuf.append("\n");
-            // the preamble may be long, so we use the big send, not the string send
-            send(s, addr, strBuf.toString().getBytes(StandardCharsets.UTF_8), null);
+            // the preamble may be long, so we use put, not the string write
+            put(s, addr, strBuf.toString().getBytes(StandardCharsets.UTF_8), null);
             if(p != null) {
                 p.copiedTotalBytes = 0;
                 p.totalFiles = fileList.size();
@@ -131,8 +136,8 @@ public class SockUDP {
                         System.arraycopy(fileReadBuffer, lastBytes, putBuf, 0, 
                                 nextBytes);
                         // sync with client
-                        if(!(d = recv(s)).utf8().equals("next")) {
-                            Log.err("illegal chunk termination line: " + d);
+                        if(!(d = read(s)).utf8().equals("next")) {
+                            Log.err("illegal chunk termination line: " + d.utf8());
                         }
                     }
                     if(p != null) {
@@ -149,14 +154,14 @@ public class SockUDP {
                 System.arraycopy(putBuf, 0, trailBuf, 0, putBufOffset);
                 send(s, addr, trailBuf, null);
             }
-            if(!(d = recv(s)).utf8().equals("done")) {
-                Log.err("illegal put termination line: " + d);
+            if(!(d = read(s)).utf8().equals("done")) {
+                Log.err("illegal put termination line: " + d.utf8());
             }
         } catch(IOException ioe) {
             Log.err("udpput: exception: " + ioe);
-            send(s, addr, "-1");
+            write(s, addr, "-1");
         }
-    }
+    }        
     
     /**
      * Recursively receive multiple files over the socket. The server must use
@@ -181,8 +186,8 @@ public class SockUDP {
         
         // wait for preamble from remote host's put
         Payload payload;
-        payload = recv(s, null);
-        SocketAddress remote = payload.getSocketAddress();
+        payload = get(s, null);
+        SocketAddress remote = payload.getRemote();
         String[] preambleLines = payload.utf8().split("\n");
         int numOfFiles = Integer.parseInt(preambleLines[0]);
         if(numOfFiles < 0) {
@@ -274,7 +279,7 @@ public class SockUDP {
                 transferFrame += nr;
                 if(transferFrame == UDP_PUT_BUFFER_SIZE) {
                     // we're ready for next PUT chunk
-                    send(s, remote, "next");
+                    write(s, remote, "next");
                     transferFrame = 0;
                 }
                 if(p != null) {
@@ -284,7 +289,7 @@ public class SockUDP {
             }
             out.close();
         }
-        send(s, remote, "done");
+        write(s, remote, "done");
             
         if(totalCopiedBytes < totalBytes) {
             Log.err("missing bytes");
@@ -299,28 +304,100 @@ public class SockUDP {
     }
     
     /**
-     * Send data through UDP by breaking the byte array into UDP packets. Each
-     * packet will have a header that allows
-     * {@link #recvBytes(DatagramSocket) recv} to reconstuct the data as 
-     * UDP packets may be received not in the original transmission order.
+     * A wrapper for
+     * {@link #send(DatagramSocket, SocketAddress, byte[], Progress) send}.
+     * Sends data broken into chunks with size defined by 
+     * <code>UDP_PUT_BUFFER_SIZE</code> and synchronizes with the remote host
+     * after every chunk.
      * 
-     * The maximum number of packets is 65535 and each packet has a 4 byte
+     * @param s Socket handle to use
+     * @param addr SocketAddress of the remote host
+     * @param data Data to transfer
+     * @param p Progress handle to use (can be null)
+     * @throws IOException if an I/O exception occurs
+     */
+    public static void put(DatagramSocket s, SocketAddress addr, byte[] data,
+            Progress p) throws IOException {
+        if(data.length == 0) {
+            return;
+        }
+        Payload d;
+        int n = (data.length-1) / UDP_PUT_BUFFER_SIZE + 1;
+        write(s, addr, String.valueOf(data.length));
+        int off = 0;
+        for(int i = 0; i < n; i++) {
+            int sendSize = (data.length - off >= UDP_PUT_BUFFER_SIZE) ?
+                    UDP_PUT_BUFFER_SIZE : data.length - off;
+            byte[] buf = new byte[sendSize];
+            System.arraycopy(data, off, buf, 0, sendSize);
+            send(s, addr, buf, p);
+            off += sendSize;
+            if(!(d = read(s)).utf8().equals("next")) {
+                Log.err("illegal chunk termination line: " + d.utf8());
+            }
+        }
+    }
+    
+    /**
+     * A wrapper for {@link #recv(DatagramSocket, Progress) recv}. 
+     * Counterpart of
+     * {@link #put(DatagramSocket, SocketAddress, byte[], Progress) put}.
+     * 
+     * @param s DatagramSocket handle to use
+     * @param p Progress handle to use (can be null)
+     * @return Received data
+     * @throws IOException if an I/O exception occurs
+     */
+    public static Payload get(DatagramSocket s, Progress p) 
+            throws IOException {
+        Payload payload = read(s);
+        SocketAddress source = payload.getRemote();
+        int len = Integer.parseInt(payload.utf8());
+        byte[] data = new byte[len];
+        int n = (len-1) / UDP_PUT_BUFFER_SIZE + 1;
+        int off = 0;
+        if(p != null) {
+            p.totalBytes = len;
+        }
+        for(int i = 0; i < n; i++) {
+            payload = recv(s, p);
+            len = payload.get().length;
+            System.arraycopy(payload.get(), 0, data, off, len);
+            off += len;
+            write(s, source, "next");
+        }
+        return new Payload(data, source);
+    }
+    
+    /**
+     * <p>Send data through UDP by breaking the byte array into UDP packets. Each
+     * packet will have a header that allows
+     * {@link #recv(DatagramSocket, Progress) recv} to reconstuct the data as 
+     * UDP packets may be received not in the original transmission order.</p>
+     * 
+     * <p>The maximum number of packets is 65535 and each packet has a 4 byte
      * overhead. This results in maximum data size of:
      * 65535 x <code>UDP_MAX_DATAGRAM_SIZE-4</code> or 2^31-1 (largest Java
      * positive integer value), whichever is smaller. If bigger data needs
      * to be transmitted, it will have to be broken into multiple calls to
-     * this method.
+     * this method.</p>
+     * 
+     * <p>Note that there is no synchronization between this method and its
+     * receiving counterpart. Sending too big of data broken into many UDP
+     * packets may result in dropped packs on the remote host!</p>
      * 
      * @param s DatagramSocket handle to use
      * @param addr Address and port to transmit the data to
-     * @param data Byte array containing the data to send
+     * @param data Byte array containing the data to write
      * @param p Progress handle to use (can be null)
      * @throws IOException if an I/O exception occurs 
      */
     public static void send(DatagramSocket s, SocketAddress addr,
             byte[] data, Progress p) throws IOException {       
-        Payload d;
-        int n = (data.length / (UDP_MAX_DATAGRAM_SIZE-4)) + 1;
+        if(data.length == 0) {
+            return;
+        }
+        int n = ((data.length-1) / (UDP_MAX_DATAGRAM_SIZE-4)) + 1;
         int bytesSent = 0;
         if(n >= 256*256) {
             Log.err("udpsend: too big");
@@ -336,7 +413,7 @@ public class SockUDP {
             // total number of packets
             header[2] = (byte) (n / 256);
             header[3] = (byte) (n % 256);
-            boolean lastChunk = data.length-bytesSent+4 < UDP_MAX_DATAGRAM_SIZE;
+            boolean lastChunk = data.length-bytesSent+4 <= UDP_MAX_DATAGRAM_SIZE;
             int sendSize = !lastChunk ? 
                     UDP_MAX_DATAGRAM_SIZE : data.length-bytesSent+4;
             byte[] sendBuffer = new byte[sendSize];
@@ -347,8 +424,12 @@ public class SockUDP {
                     addr);
             Log.d(3, "udpsend: i=" + i + " bytesSent=" + bytesSent);
             s.send(packet);
-            if(!(d = recv(s)).utf8().equals("w")) {
-                Log.err("illegal send piece termination line: " + d);
+            if(PIECE_SEND_DELAY_MS > 0) {
+                try {
+                    Thread.sleep(PIECE_SEND_DELAY_MS);
+                } catch(Exception e) {
+                    
+                }
             }
             if(p != null) {
                 p.copiedTotalBytes += sendSize;
@@ -396,8 +477,6 @@ public class SockUDP {
             buf.put(order, new Payload(payload, source));
             packetsReceived++;
             nr += payload.length;
-            // sync with sender
-            send(s, source, "w");
             if(p != null) {
                 p.copiedTotalBytes += payload.length;
             }
@@ -413,15 +492,16 @@ public class SockUDP {
     }
     
     /**
-     * Send UTF-8 string through UDP to be received with
-     * {@link #recv(DatagramSocket) recv}
+     * Send UTF-8 string through a <b>single</b> UDP packet to be received with
+     * {@link #read(DatagramSocket) read}. If the data is greater than
+     * <code>UDP_MAX_DATAGRAM_SIZE</code> it will be truncated.
      * 
      * @param s DatagramSocket handle to use
      * @param addr Address and port to transmit the data to
-     * @param utf8 UTF-8 encoded string to send
+     * @param utf8 UTF-8 encoded string to write
      * @throws IOException if an I/O exception occurs 
      */
-    public static void send(DatagramSocket s, SocketAddress addr, 
+    public static void write(DatagramSocket s, SocketAddress addr, 
             String utf8) throws IOException {        
         byte[] utf8Bytes = utf8.getBytes(StandardCharsets.UTF_8);
         Log.d(2, "udpsend: \"" + utf8 + "\"");
@@ -429,14 +509,14 @@ public class SockUDP {
     }    
     
     /**
-     * Receive UDP packets carrying a UTF-8 string data encoded by
-     * {@link #send(DatagramSocket, SocketAddress, String) send}
+     * Receive a UDP packet carrying a UTF-8 string data encoded by
+     * {@link #write(DatagramSocket, SocketAddress, String) write}
      * 
      * @param s DatagramSocket handle to use
      * @return Payload containing received UTF-8 string
      * @throws IOException if an I/O exception occurs 
      */
-    public static Payload recv(DatagramSocket s) throws IOException {
+    public static Payload read(DatagramSocket s) throws IOException {
         byte[] receiveBuffer = new byte[UDP_MAX_DATAGRAM_SIZE];
         DatagramPacket packet = new DatagramPacket(receiveBuffer, receiveBuffer.length);
         s.receive(packet);

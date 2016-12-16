@@ -61,12 +61,12 @@ public class FileDownloadServer {
         boolean quit = false;
         Log.d(0, "udp listening");
         while(!quit) {
-            payload = SockUDP.recv(s);
+            payload = SockUDP.read(s);
             line = payload.utf8();
             if(line.endsWith("\n")) {
                 line = line.substring(0, line.length()-1);
             }
-            source = (InetSocketAddress) payload.getSocketAddress();
+            source = (InetSocketAddress) payload.getRemote();
             addr = source.getAddress().getHostAddress() + ":" + source.getPort();
             if(!clientPaths.containsKey(addr)) {
                 clientPaths.put(addr, rootPath);
@@ -103,7 +103,7 @@ public class FileDownloadServer {
                                 currentPath + tokens[1];
                         }
                         if(!effectivePath.startsWith(root)) {
-                            SockUDP.send(s, source, "illegal path");
+                            SockUDP.write(s, source, "illegal path");
                             break;
                         }
                         f = new File(effectivePath);
@@ -111,13 +111,13 @@ public class FileDownloadServer {
                         populateFileList(f.getParentFile(), f, fileList, false);
                         for(FileEntry e : fileList) {
                             if(e.getFile().isDirectory()) {
-                                SockUDP.send(s, source, String.format("%1$15s", 
+                                SockUDP.write(s, source, String.format("%1$15s", 
                                                 "") + "  " + e.getName());
                             }
                         }
                         for(FileEntry e : fileList) {
                             if(!e.getFile().isDirectory()) {
-                                SockUDP.send(s, source, String.format("%1$15s", 
+                                SockUDP.write(s, source, String.format("%1$15s", 
                                                 e.getFile().length()) + "  " +
                                                         e.getName());
                             }
@@ -131,7 +131,7 @@ public class FileDownloadServer {
                                 currentPath + tokens[1];
                         }
                         if(!effectivePath.startsWith(root)) {
-                            SockUDP.send(s, source, "illegal path");
+                            SockUDP.write(s, source, "illegal path");
                             break;
                         }
                         f = new File(effectivePath);
@@ -143,7 +143,7 @@ public class FileDownloadServer {
                                 size += e.getFile().length();
                             }
                         }
-                        SockUDP.send(s, source, String.valueOf(size));
+                        SockUDP.write(s, source, String.valueOf(size));
                         break;
                     case "cat":
                         if(tokens.length < 2) {
@@ -152,10 +152,10 @@ public class FileDownloadServer {
                         effectivePath = tokens[1].startsWith("/") ? tokens[1] :
                                 currentPath + tokens[1];
                         if(!effectivePath.startsWith(root)) {
-                            SockUDP.send(s, source, "illegal path");
+                            SockUDP.write(s, source, "illegal path");
                             break;
                         }
-                        SockUDP.send(s, source, new String(
+                        SockUDP.write(s, source, new String(
                                 Files.readAllBytes(Paths.get(effectivePath)),
                                 "UTF-8"));
                         break;
@@ -177,21 +177,21 @@ public class FileDownloadServer {
                         }
                         if(f.exists() && f.isDirectory()) {
                             if(!(f.getCanonicalPath() + "/").startsWith(root)) {
-                                SockUDP.send(s, source, "illegal path");
+                                SockUDP.write(s, source, "illegal path");
                                 break;
                             }
                             currentPath = f.getCanonicalPath() + "/";
                             // update current path for this host
                             clientPaths.put(addr, currentPath);
-                            SockUDP.send(s, source, currentPath);
+                            SockUDP.write(s, source, currentPath);
                         }
                         break;
                     case "pwd":
-                        SockUDP.send(s, source, currentPath);
+                        SockUDP.write(s, source, currentPath);
                         break;
                 }
             } catch(Exception e) {
-                // send(s, source, e.toString());
+                // write(s, source, e.toString());
                 Log.err("udp wait: " + e.toString());
                 if(Log.debugLevel > 1) {
                     e.printStackTrace();
@@ -206,8 +206,8 @@ public class FileDownloadServer {
     }
     
     /**
-     * TCP interactive file server. The client must send the 'quit' command for 
-     * the server to escape this mode
+     * TCP interactive file server. The client must write the 'quit' command for 
+ the server to escape this mode
      * 
      * @param s Socket handle to use
      * @param root Root directory, client won't be able to access a higher level
@@ -232,7 +232,7 @@ public class FileDownloadServer {
         String currentPath = rootDirectory.getCanonicalPath() + "/";
         boolean quit = false;
         while(!quit) {
-            line = Sock.recv(s);
+            line = Sock.read(s);
             tokens = line.split(" ", 2);
             File f;
             List<FileEntry> fileList;
@@ -245,7 +245,7 @@ public class FileDownloadServer {
                         effectivePath = tokens[1].startsWith("/") ? tokens[1] :
                                 currentPath + tokens[1];
                         if(!effectivePath.startsWith(root)) {
-                            Sock.send(s, "-2");
+                            Sock.write(s, "-2");
                             break;
                         }
                         Sock.put(s, effectivePath, p);
@@ -261,7 +261,7 @@ public class FileDownloadServer {
                                 currentPath + tokens[1];
                         }
                         if(!effectivePath.startsWith(root)) {
-                            Sock.send(s, "illegal path");
+                            Sock.write(s, "illegal path");
                             break;
                         }
                         f = new File(effectivePath);
@@ -269,13 +269,13 @@ public class FileDownloadServer {
                         populateFileList(f.getParentFile(), f, fileList, false);
                         for(FileEntry e : fileList) {
                             if(e.getFile().isDirectory()) {
-                                Sock.send(s, String.format("%1$15s", 
+                                Sock.write(s, String.format("%1$15s", 
                                         "") + "  " + e.getName());
                             }
                         }
                         for(FileEntry e : fileList) {
                             if(!e.getFile().isDirectory()) {
-                                Sock.send(s, String.format("%1$15s", 
+                                Sock.write(s, String.format("%1$15s", 
                                         e.getFile().length()) + "  " + e.getName());
                             }
                         }
@@ -288,7 +288,7 @@ public class FileDownloadServer {
                                 currentPath + tokens[1];
                         }
                         if(!effectivePath.startsWith(root)) {
-                            Sock.send(s, "illegal path");
+                            Sock.write(s, "illegal path");
                             break;
                         }
                         f = new File(effectivePath);
@@ -300,7 +300,7 @@ public class FileDownloadServer {
                                 size += e.getFile().length();
                             }
                         }
-                        Sock.send(s, String.valueOf(size));
+                        Sock.write(s, String.valueOf(size));
                         break;
                     case "cat":
                         if(tokens.length < 2) {
@@ -309,10 +309,10 @@ public class FileDownloadServer {
                         effectivePath = tokens[1].startsWith("/") ? tokens[1] :
                                 currentPath + tokens[1];
                         if(!effectivePath.startsWith(root)) {
-                            Sock.send(s, "illegal path");
+                            Sock.write(s, "illegal path");
                             break;
                         }
-                        Sock.send(s, new String(
+                        Sock.write(s, new String(
                                 Files.readAllBytes(Paths.get(effectivePath)),
                                 "UTF-8"));
                         break;
@@ -334,19 +334,19 @@ public class FileDownloadServer {
                         }
                         if(f.exists() && f.isDirectory()) {
                             if(!(f.getCanonicalPath() + "/").startsWith(root)) {
-                                Sock.send(s, "illegal path");
+                                Sock.write(s, "illegal path");
                                 break;
                             }
                             currentPath = f.getCanonicalPath() + "/";
-                            Sock.send(s, currentPath);
+                            Sock.write(s, currentPath);
                         }
                         break;
                     case "pwd":
-                        Sock.send(s, currentPath);
+                        Sock.write(s, currentPath);
                         break;
                 }               
             } catch(Exception e) {
-                Sock.send(s, e.toString());
+                Sock.write(s, e.toString());
             }
         }
     }        

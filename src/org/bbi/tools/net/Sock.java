@@ -21,16 +21,11 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.net.DatagramPacket;
-import java.net.DatagramSocket;
 import java.net.Socket;
-import java.net.SocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.text.NumberFormat;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import org.bbi.tools.FileEntry;
 import org.bbi.tools.Log;
 
@@ -41,37 +36,19 @@ import org.bbi.tools.Log;
  */
 public class Sock {   
     /**
-     * Size of the buffer used to send data
+     * Size of the buffer used to read file from disk
      */
-    private static int FILE_READ_BUFFER_SIZE = 8192;
+    public static int FILE_READ_BUFFER_SIZE = 8192;
     
     /**
      * Size of the buffer used to receive data
      */
-    private static int RECEIVE_BUFFER_SIZE = 65536;
+    public static int RECEIVE_BUFFER_SIZE = 65536;
     
     /**
-     * String terminator for send and receive methods
+     * String terminator for write and receive methods
      */
-    private static byte STRING_TERMINATOR = 0;    
-    
-    /**
-     * Set a new send buffer size for the class
-     * 
-     * @param n New buffer size in BYTES
-     */
-    public static void setReadBufferSize(int n) {
-        FILE_READ_BUFFER_SIZE = n;
-    }
-    
-    /**
-     * Set a new receive buffer size for the class
-     * 
-     * @param n New buffer size in BYTES
-     */
-    public static void setReceiveBufferSize(int n) {
-        RECEIVE_BUFFER_SIZE = n;
-    }
+    private static byte STRING_TERMINATOR = 0;        
     
     /**
      * Set a new string terminator 
@@ -104,13 +81,13 @@ public class Sock {
         try {
             long totalBytes = 0L;
             FileEntry.populateFileList(file.getParentFile(), file, fileList, true);
-            send(s, String.valueOf(fileList.size()));
+            write(s, String.valueOf(fileList.size()));
             for(FileEntry f : fileList) {
-                send(s, String.valueOf(f.getFile().length()) + " " +
+                write(s, String.valueOf(f.getFile().length()) + " " +
                         f.getRelativePath());
                 totalBytes += f.getFile().length();
             }
-            send(s, String.valueOf(totalBytes));
+            write(s, String.valueOf(totalBytes));
             if(p != null) {
                 p.copiedTotalBytes = 0;
                 p.totalFiles = fileList.size();
@@ -140,11 +117,11 @@ public class Sock {
                 in.close();
             }
             s.getOutputStream().flush();
-            if(!(d = Sock.recv(s)).equals("done")) {
+            if(!(d = Sock.read(s)).equals("done")) {
                 Log.err("illegal termination line: " + d);
             }
         } catch(IOException ioe) {
-            send(s, "-1");
+            write(s, "-1");
         }        
     }            
     
@@ -168,7 +145,7 @@ public class Sock {
         byte[] overflowBuffer = null;
         
         // get total number of files
-        String numOfFilesString = Sock.recv(s);
+        String numOfFilesString = Sock.read(s);
         FileOutputStream out;
         int numOfFiles = Integer.parseInt(numOfFilesString);
         if(numOfFiles < 0) {
@@ -180,14 +157,14 @@ public class Sock {
         String[] fileNames = new String[numOfFiles];
         long[] fileSizes = new long[numOfFiles];
         for(int i = 0; i < numOfFiles; i++) {
-            tokens = Sock.recv(s).split(" ", 2);
+            tokens = Sock.read(s).split(" ", 2);
             fileNames[i] = tokens[1];
             fileSizes[i] = Long.parseLong(tokens[0]);
         }
         
         // get total number of bytes so the user knows how big the incoming
         // transmission is
-        long totalBytes = Long.parseLong(Sock.recv(s));
+        long totalBytes = Long.parseLong(Sock.read(s));
         Log.d(0, "number of files to fetch: " + numOfFiles + " (" +
                 NumberFormat.getIntegerInstance().format(totalBytes) +
                 " bytes)");
@@ -260,7 +237,7 @@ public class Sock {
             }
             out.close();
         }
-        send(s, "done");
+        write(s, "done");
             
         if(totalCopiedBytes < totalBytes) {
             Log.err("missing bytes");
@@ -280,10 +257,10 @@ public class Sock {
      * <code>STRING_TERMINATOR</code>
      * 
      * @param s Socket handle to use
-     * @param data String data to send
+     * @param data String data to write
      * @throws IOException 
      */
-    public static void send(Socket s, String data) throws IOException {
+    public static void write(Socket s, String data) throws IOException {
         Log.d(1, "send: \"" + data + "\"");
         OutputStream out = s.getOutputStream();
         out.write(data.getBytes(StandardCharsets.UTF_8));
@@ -302,7 +279,7 @@ public class Sock {
      * @return String representation of the received data
      * @throws IOException 
      */
-    public static String recv(Socket s) throws IOException {
+    public static String read(Socket s) throws IOException {
         InputStream in = s.getInputStream();
         int bufferSizeMultiplier = 1;
         byte[] buffer = new byte[RECEIVE_BUFFER_SIZE];

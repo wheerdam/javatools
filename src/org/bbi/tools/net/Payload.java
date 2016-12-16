@@ -39,7 +39,7 @@ public class Payload {
         return new String(payload, StandardCharsets.UTF_8);
     }
     
-    public SocketAddress getSocketAddress() {
+    public SocketAddress getRemote() {
         return socketAddress;
     }
 }

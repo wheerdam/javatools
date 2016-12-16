@@ -18,6 +18,7 @@ package org.bbi.tools;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -56,5 +57,11 @@ public class Files7 {
         }
         r.close();
         return lines;
+    }
+    
+    public static void write(String path, byte[] data) throws IOException {
+        FileOutputStream out = new FileOutputStream(new File(path));
+        out.write(data);
+        out.close();
     }
 }
