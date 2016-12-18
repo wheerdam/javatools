@@ -24,6 +24,8 @@ import java.net.DatagramSocket;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.net.SocketAddress;
+import java.nio.charset.StandardCharsets;
 import java.text.NumberFormat;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -31,10 +33,13 @@ import javax.swing.JDialog;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JProgressBar;
+import org.bbi.net.holepunch.UDPClient;
+import org.bbi.net.holepunch.UDPServer;
 import org.bbi.tools.Log;
 import org.bbi.tools.Files7;
 
 /**
+ * Collection of interactive tests for the tools
  *
  * @author wira
  */
@@ -43,17 +48,16 @@ public class SockTest {
     
     public static void main(String args[]) {
         Log.debugLevel = 0; 
-        String env, envBBIDebug;
-        if((envBBIDebug = System.getenv().get("BBI_DEBUG")) != null) {
-            Log.debugLevel = Integer.parseInt(envBBIDebug);
+        String env;
+        if((env = System.getenv().get("BBI_DEBUG")) != null) {
+            Log.debugLevel = Integer.parseInt(env);
             Log.d(0, "debug level set to " + Log.debugLevel);
         }
         if((env = System.getenv("UDP_PUT_BUFFER_SIZE")) != null) {
             // multiples of the built-in max datagram size
             int i = Integer.parseInt(env);
-            SockUDP.UDP_PUT_BUFFER_SIZE = i*SockUDP.UDP_MAX_DATAGRAM_SIZE - 
-                    i*4;
-            Log.d(0, "UDP_PUT_BUFFER_SIZE set to " + SockUDP.UDP_PUT_BUFFER_SIZE);
+            SockUDP.setPutBufferSize(i);
+            Log.d(0, "UDP_PUT_BUFFER_SIZE set to " + SockUDP.getPutBufferSize());
         }
         if((env = System.getenv("UDP_PIECE_SEND_DELAY_MS")) != null) {
             // multiples of the built-in max datagram size
@@ -66,7 +70,9 @@ public class SockTest {
         } else if(args.length == 3 && args[0].equals("udpserve")) {
             udpserve(args);
         } else if(args.length == 2 && args[0].equals("udpclient")) {
-            udpclient(args);
+            udpclient(false, args);
+        } else if(args.length == 3 && args[0].equals("udpclient")) {
+            udpclient(args[2].equals("--put"), args);
         } else if(args.length == 3 && args[0].equals("interactive")) {
             interactive(args);
         } else if(args.length >= 2 && args[0].equals("get")) {
@@ -81,6 +87,10 @@ public class SockTest {
             udpsendfile(args);
         } else if(args.length == 3 && args[0].equals("udprecvfile")) {
             udprecvfile(args);
+        } else if(args.length == 2 && args[0].equals("udppunchholeserver")) {
+            udppunchholeserver(args);
+        } else if(args.length == 3 && args[0].equals("udppunchholeclient")) {
+            udppunchholeclient(args);
         } else {
             System.err.println("usage: java -cp <javatools-jar> org.bbi.tools.net.SockTest <command> [options]");
             System.out.println();
@@ -100,7 +110,7 @@ public class SockTest {
         }
     }
     
-    public static void serve(String[] args) {
+    public static void serve(String...args) {
         try {
             ServerSocket ss = new ServerSocket(Integer.parseInt(args[1]));
             while(true) {
@@ -115,7 +125,7 @@ public class SockTest {
         }
     }
     
-    public static void interactive(String[] args) {
+    public static void interactive(String...args) {
         try {
             ServerSocket ss = new ServerSocket(Integer.parseInt(args[1]));
             while(true) {
@@ -131,7 +141,7 @@ public class SockTest {
         }
     }
     
-    public static void get(String[] args) {
+    public static void get(String...args) {
         try {
             String[] tokens = args[1].split(":");
             String host = tokens[0];
@@ -160,7 +170,7 @@ public class SockTest {
         }
     }
     
-    public static void sendtext(String[] args) {
+    public static void sendtext(String...args) {
         try {
             ServerSocket ss = new ServerSocket(Integer.parseInt(args[1]));
             String data = new String(Files7.readAllBytes(args[2]), "UTF-8");
@@ -173,7 +183,7 @@ public class SockTest {
         }
     }
     
-    public static void recvtext(String[] args) {
+    public static void recvtext(String...args) {
         try {
             String[] tokens = args[1].split(":");
             String host = tokens[0];
@@ -186,7 +196,7 @@ public class SockTest {
         }
     }
     
-    public static void udpserve(String[] args) {
+    public static void udpserve(String...args) {
         try {
             DatagramSocket ss = new DatagramSocket(Integer.parseInt(args[1]));
             try {
@@ -199,20 +209,28 @@ public class SockTest {
         }
     }
     
-    public static void udpclient(String[] args) {
+    public static void udpclient(boolean put, String...args) {
         try {
             DatagramSocket ss = new DatagramSocket(0);
+            SockUDP sock = new SockUDP(ss);
             BufferedReader r = new BufferedReader(new InputStreamReader(System.in));
             String[] tokens = args[1].split(":");
             String host = tokens[0];
             int port = Integer.parseInt(tokens[1]);
             InetSocketAddress addr = new InetSocketAddress(host, port);
-            // get a reader socket running
-            pool.execute(new UDPHandler(ss));
+            if(!put) {
+                // get a reader socket running
+                pool.execute(new UDPHandler(ss, addr));
+            }
             try {
                 String l;
                 while((l = r.readLine()) != null) {
-                    SockUDP.write(ss, addr, l);
+                    if(!put) {
+                        sock.write(addr, l);
+                    } else {
+                        sock.put(addr, l.getBytes(StandardCharsets.UTF_8), null);
+                        Log.d(0, sock.get(addr, null).decode());
+                    }
                     if(l.equals("quit")) {
                         System.exit(0);
                     }
@@ -225,13 +243,15 @@ public class SockTest {
         }
     }
     
-    public static void udpget(String[] args) {
+    // test SockUDP.write and SockUDP.getf
+    public static void udpget(String...args) {
         try {
             String[] tokens = args[1].split(":");
             String host = tokens[0];
             int port = Integer.parseInt(tokens[1]);
             String path = tokens[2];
             DatagramSocket s = new DatagramSocket(0);      
+            SockUDP sock = new SockUDP(s);
             InetSocketAddress addr = new InetSocketAddress(host, port);
             Progress p = null;
             if(args.length == 3 && args[2].equals("--progress")) {
@@ -239,16 +259,16 @@ public class SockTest {
                 ProgressFrame pFrame = new ProgressFrame(p);
                 ProgressUpdater pUpdater = new ProgressUpdater(pFrame);
                 pool.execute(pUpdater);
-                SockUDP.write(s, addr, "get " + path);
-                SockUDP.get(s, ".", p);
-                SockUDP.write(s, addr, "quit");
+                sock.write(addr, "get " + path);
+                sock.getf(addr, ".", p);
+                sock.write(addr, "quit");
                 pUpdater.stop();
                 pFrame.dispose();
                 pool.shutdownNow();
             } else {
-                SockUDP.write(s, addr, "get " + path);
-                SockUDP.get(s, ".", null);
-                SockUDP.write(s, addr, "quit");
+                sock.write(addr, "get " + path);
+                sock.getf(addr, ".", null);
+                sock.write(addr, "quit");
             }
             s.close();
         } catch(Exception e) {
@@ -256,15 +276,18 @@ public class SockTest {
         }
     }
     
-    public static void udpsendfile(String[] args) {
+    // test SockUDP.put
+    public static void udpsendfile(String...args) {
         try {
             DatagramSocket ss = new DatagramSocket();
+            SockUDP sock = new SockUDP(ss);
             ss.setSoTimeout(5000);
             String[] tokens = args[1].split(":");
             String host = tokens[0];
             int port = Integer.parseInt(tokens[1]);
             InetSocketAddress addr = new InetSocketAddress(host, port);
-            SockUDP.put(ss, addr, Files7.readAllBytes(args[2]), null);
+            Log.d(0, "sending " + args[2] + " to " + UDPHost.sockAddress(addr));
+            sock.put(addr, Files7.readAllBytes(args[2]), null);
             ss.close();
         } catch(Exception e) {
             Log.err("exception: " + e);
@@ -272,18 +295,40 @@ public class SockTest {
         }
     }
     
-    public static void udprecvfile(String[] args) {
+    // test SockUDP.get
+    public static void udprecvfile(String...args) {
         try {
             DatagramSocket ss = new DatagramSocket(Integer.parseInt(args[1]));
+            SockUDP sock = new SockUDP(ss);
             Progress p = new Progress();
             ProgressFrame pFrame = new ProgressFrame(p);
             ProgressUpdater pUpdater = new ProgressUpdater(pFrame);
             pool.execute(pUpdater);
-            // SockUDP.get(ss, args[2], p);
-            Files7.write(args[2], SockUDP.get(ss, p).get());
+            // SockUDP.getf(ss, args[2], p);
+            Files7.write(args[2], sock.get(null, p).get());
             ss.close();
             pUpdater.stop();
             pFrame.dispose();
+            pool.shutdown();
+        } catch(Exception e) {
+            e.printStackTrace();
+        }
+    }
+    
+    public static void udppunchholeserver(String...args) {
+        try {
+            UDPServer s = new UDPServer(Integer.parseInt(args[1]));
+            pool.execute(s);
+        } catch(Exception e) {
+            e.printStackTrace();
+        }
+    }
+    
+    public static void udppunchholeclient(String...args) {
+        try {
+            UDPClient c = new UDPClient(UDPHost.parseAddress(args[1]),
+                                        Integer.parseInt(args[2]));
+            c.connect(true);
         } catch(Exception e) {
             e.printStackTrace();
         }
@@ -365,10 +410,14 @@ public class SockTest {
     
     static class UDPHandler implements Runnable {
         private final DatagramSocket s;
+        private final SocketAddress addr;
+        private final SockUDP sock;
         private boolean quit = false;
         
-        public UDPHandler(DatagramSocket s) {
+        public UDPHandler(DatagramSocket s, SocketAddress addr) {
             this.s = s;
+            this.addr = addr;
+            sock = new SockUDP(s);
         }        
         
         public void quit() {
@@ -378,15 +427,17 @@ public class SockTest {
         
         @Override
         public void run() {
+            Log.d(1, "UDPHandler: run");
             Payload p;
             try {
                 while(!quit) {
-                    p = SockUDP.get(s, null);
-                    Log.d(0, p.utf8());
+                    p = sock.get(addr, null);
+                    Log.d(0, p.decode());
                 }                
             } catch(IOException ioe) {
                 Log.err("udp handler exception " + ioe);
             }
+            Log.d(1, "UDPHandler: exit");
         }
     }
     

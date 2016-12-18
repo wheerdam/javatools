@@ -18,6 +18,7 @@ package org.bbi.tools;
 import javax.swing.JOptionPane;
 
 /**
+ * All-purpose simple logger
  *
  * @author wira
  */

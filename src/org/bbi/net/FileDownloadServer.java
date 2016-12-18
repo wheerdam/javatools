@@ -17,6 +17,7 @@ package org.bbi.net;
 
 import java.io.File;
 import java.io.IOException;
+import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetSocketAddress;
 import java.net.Socket;
@@ -33,11 +34,19 @@ import org.bbi.tools.Log;
 import static org.bbi.tools.FileEntry.populateFileList;
 
 /**
- * An interactive file download server
+ * Interactive TCP and UDP file download servers
  *
  * @author wira
  */
 public class FileDownloadServer {
+    /**
+     * UDP interactive file server
+     * 
+     * @param s UDP socket handle to use
+     * @param root Root directory, client won't be able to access a higher level
+     * @param p Progress handle to use
+     * @throws IOException 
+     */
     public static void wait(DatagramSocket s, String root, Progress p)
             throws IOException {
         String line;
@@ -46,7 +55,9 @@ public class FileDownloadServer {
         String effectivePath;
         InetSocketAddress source;
         Payload payload;
+        SockUDP sock = new SockUDP(s);
         Map<String, String> clientPaths = new HashMap<>();
+        List<SocketAddress> activeClients = new ArrayList<>();
         File rootDirectory = new File(root);
         if(!rootDirectory.exists()) {
             Log.err(root + " does not exist");
@@ -61,13 +72,30 @@ public class FileDownloadServer {
         boolean quit = false;
         Log.d(0, "udp listening");
         while(!quit) {
-            payload = SockUDP.read(s);
-            line = payload.utf8();
+            DatagramPacket packet;
+            for(SocketAddress client : activeClients) {
+                Log.d(0, UDPHost.sockAddress(client));
+            }
+            while((packet = sock.listen(activeClients)) == null) {
+                for(String str : sock.dumpBuffer()) {
+                    Log.d(0, str);
+                }
+                try {
+                    // give other threads 10 seconds to consume the buffer
+                    Thread.sleep(10000);
+                    sock.clearBuffer(10000);
+                } catch(Exception e) {
+                    
+                }
+            }
+            payload = new Payload(packet);
+            activeClients.add(payload.getRemote());
+            line = payload.decode();
             if(line.endsWith("\n")) {
                 line = line.substring(0, line.length()-1);
             }
             source = (InetSocketAddress) payload.getRemote();
-            addr = source.getAddress().getHostAddress() + ":" + source.getPort();
+            addr = UDPHost.sockAddress(source);
             if(!clientPaths.containsKey(addr)) {
                 clientPaths.put(addr, rootPath);
                 Log.d(1, "new client: " + addr);
@@ -86,10 +114,10 @@ public class FileDownloadServer {
                         effectivePath = tokens[1].startsWith("/") ? tokens[1] :
                                 currentPath + tokens[1];
                         if(!effectivePath.startsWith(root)) {
-                            udputf8(s, source, "-2");
+                            udputf8(sock, source, "-2");
                             break;
                         }
-                        SockUDP.put(s, source, effectivePath, p);
+                        sock.putf(source, effectivePath, p);
                         break;
                     case "quit":
                         clientPaths.remove(addr);
@@ -103,23 +131,23 @@ public class FileDownloadServer {
                                 currentPath + tokens[1];
                         }
                         if(!effectivePath.startsWith(root)) {
-                            udputf8(s, source, "illegal path");
+                            udputf8(sock, source, "illegal path");
                             break;
                         }
                         f = new File(effectivePath);
                         fileList = new ArrayList<>();
                         populateFileList(f.getParentFile(), f, fileList, false);
-                        udputf8(s, source, effectivePath + ": " + 
+                        udputf8(sock, source, effectivePath + ": " + 
                                            fileList.size() + " files");
                         for(FileEntry e : fileList) {
                             if(e.getFile().isDirectory()) {
-                                udputf8(s, source, String.format("%1$15s", 
+                                udputf8(sock, source, String.format("%1$15s", 
                                                 "[dir]") + "  " + e.getName());
                             }
                         }
                         for(FileEntry e : fileList) {
                             if(!e.getFile().isDirectory()) {
-                                udputf8(s, source, String.format("%1$15s", 
+                                udputf8(sock, source, String.format("%1$15s", 
                                                 e.getFile().length()) + "  " +
                                                         e.getName());
                             }
@@ -133,7 +161,7 @@ public class FileDownloadServer {
                                 currentPath + tokens[1];
                         }
                         if(!effectivePath.startsWith(root)) {
-                            udputf8(s, source, "illegal path");
+                            udputf8(sock, source, "illegal path");
                             break;
                         }
                         f = new File(effectivePath);
@@ -145,7 +173,7 @@ public class FileDownloadServer {
                                 size += e.getFile().length();
                             }
                         }
-                        udputf8(s, source, String.valueOf(size));
+                        udputf8(sock, source, String.valueOf(size));
                         break;
                     case "cat":
                         if(tokens.length < 2) {
@@ -154,10 +182,10 @@ public class FileDownloadServer {
                         effectivePath = tokens[1].startsWith("/") ? tokens[1] :
                                 currentPath + tokens[1];
                         if(!effectivePath.startsWith(root)) {
-                            udputf8(s, source, "illegal path");
+                            udputf8(sock, source, "illegal path");
                             break;
                         }
-                        udputf8(s, source, new String(
+                        udputf8(sock, source, new String(
                                 Files.readAllBytes(Paths.get(effectivePath)),
                                 "UTF-8"));
                         break;
@@ -179,19 +207,20 @@ public class FileDownloadServer {
                         }
                         if(f.exists() && f.isDirectory()) {
                             if(!(f.getCanonicalPath() + "/").startsWith(root)) {
-                                udputf8(s, source, "illegal path");
+                                udputf8(sock, source, "illegal path");
                                 break;
                             }
                             currentPath = f.getCanonicalPath() + "/";
                             // update current path for this host
                             clientPaths.put(addr, currentPath);
-                            udputf8(s, source, currentPath);
+                            udputf8(sock, source, currentPath);
                         }
                         break;
                     case "pwd":
-                        udputf8(s, source, currentPath);
+                        udputf8(sock, source, currentPath);
                         break;
                 }
+                Log.d(3, "command done");
             } catch(Exception e) {
                 // write(s, source, e.toString());
                 Log.err("udp wait: " + e.toString());
@@ -199,12 +228,13 @@ public class FileDownloadServer {
                     e.printStackTrace();
                 }
             }
+            activeClients.remove(payload.getRemote());
         }
     }
     
-    private static void udputf8(DatagramSocket s, SocketAddress source, String str) 
+    private static void udputf8(SockUDP sock, SocketAddress source, String str) 
             throws IOException {
-        SockUDP.put(s, source, str.getBytes(StandardCharsets.UTF_8), null);
+        sock.put(source, str.getBytes(StandardCharsets.UTF_8), null);
     }
     
     /**

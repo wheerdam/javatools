@@ -16,10 +16,14 @@
 package org.bbi.net;
 
 /**
- * Holds information about a file transfer being done by either 
- * {@link Sock#put(Socket, String, Progress) Sock.put} or 
- * {@link Sock#get(Socket, String, Progress) Sock.get}. This class can be used
- * to asynchronously check the progress of the transfer.
+ * Holds information about a data transfer being done by either 
+ * {@link Sock#put(Socket, String, Progress) Sock.put} and  
+ * {@link Sock#get(Socket, String, Progress) Sock.get},
+ * {@link SockUDP#put(DatagramSocket, SocketAddress, String, Progress) SockUDP.put} and 
+ * {@link SockUDP#get(DatagramSocket, String, Progress) SockUDP.get}, or
+ * {@link SockUDP#put(DatagramSocket, SocketAddress, byte[], Progress) SockUDP.put} and
+ * {@link SockUDP#get(DatagramSocket, Progress) SockUDP.get}.
+ * This class can be used to asynchronously check the progress of the transfer.
  *
  * @author wira
  */

@@ -16,6 +16,7 @@
 package org.bbi.tools;
 
 /**
+ * Byte-oriented encoding/decoding
  *
  * @author wira
  */

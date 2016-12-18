@@ -30,7 +30,7 @@ import org.bbi.tools.FileEntry;
 import org.bbi.tools.Log;
 
 /**
- * Some tools to transfer string and files over a socket connection
+ * Some tools to transfer data and files over a TCP connection
  *
  * @author wira
  */
@@ -65,9 +65,9 @@ public class Sock {
      * will be transferred. The client must use 
      * {@link #get(Socket, String, Progress) get} to receive the files
      * 
-     * @param s Socket handle to use
-     * @param fileName File or directory to transfer
-     * @param p Progress handle to use (can be null)
+     * @param s socket handle to use
+     * @param fileName file or directory to transfer
+     * @param p progress handle to use (can be null)
      * @throws IOException if an I/O exception occurs
      */
     public static void put(Socket s, String fileName, 
@@ -129,9 +129,9 @@ public class Sock {
      * Recursively receive multiple files over the socket. The server must use
      * {@link #put(Socket, String, Progress) put} to transfer the files
      * 
-     * @param s Socket handle to use
-     * @param destDir Destination directory for the received files
-     * @param p Progress handle to use (can be null)
+     * @param s socket handle to use
+     * @param destDir destination directory for the received files
+     * @param p progress handle to use (can be null)
      * @throws IOException if an I/O exception occurs 
      */
     public static void get(Socket s, String destDir,
@@ -256,9 +256,9 @@ public class Sock {
      * Send a string through the socket as <code>UTF-8</code> terminated with 
      * <code>STRING_TERMINATOR</code>
      * 
-     * @param s Socket handle to use
-     * @param data String data to write
-     * @throws IOException 
+     * @param s socket handle to use
+     * @param data string data to write
+     * @throws IOException if an I/O exception occurs
      */
     public static void write(Socket s, String data) throws IOException {
         Log.d(1, "send: \"" + data + "\"");
@@ -275,9 +275,9 @@ public class Sock {
      * interactive data exchange. The function reads in the stream in per-byte 
      * fashion instead of buffering up data off the stream in memory.
      * 
-     * @param s Socket handle to use
-     * @return String representation of the received data
-     * @throws IOException 
+     * @param s socket handle to use
+     * @return string representation of the received data
+     * @throws IOException if an I/O exception occurs
      */
     public static String read(Socket s) throws IOException {
         InputStream in = s.getInputStream();
