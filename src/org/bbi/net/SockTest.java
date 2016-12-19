@@ -260,14 +260,14 @@ public class SockTest {
                 ProgressUpdater pUpdater = new ProgressUpdater(pFrame);
                 pool.execute(pUpdater);
                 sock.write(addr, "get " + path);
-                sock.getf(addr, ".", p);
+                sock.getf(null, ".", p);
                 sock.write(addr, "quit");
                 pUpdater.stop();
                 pFrame.dispose();
                 pool.shutdownNow();
             } else {
                 sock.write(addr, "get " + path);
-                sock.getf(addr, ".", null);
+                sock.getf(null, ".", null);
                 sock.write(addr, "quit");
             }
             s.close();

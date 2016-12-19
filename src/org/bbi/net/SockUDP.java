@@ -49,18 +49,18 @@ public class SockUDP {
     /**
      * Size of the buffer used to read file from disk
      */
-    public static int FILE_READ_BUFFER_SIZE = 8192;
+    public static int FILE_READ_BUFFER_SIZE = 16384;
     
     /**
      * Maximum UDP payload size. Must be greater than FILE_READ_BUFFER_SIZE
      * for proper UDP PUT operation. The built-in value is 16384 bytes
      */
-    public static final int UDP_MAX_DATAGRAM_SIZE = 16384;
+    public static final int UDP_MAX_DATAGRAM_SIZE = 32768;
     
     /**
      * Maximum buffer size for PUT to write through with single SEND call
      */
-    private static int UDP_PUT_BUFFER_SIZE = 2*(UDP_MAX_DATAGRAM_SIZE-2); 
+    private static int UDP_PUT_BUFFER_SIZE = 2*(UDP_MAX_DATAGRAM_SIZE-4); 
     
     /**
      * Delay between broken up data pieces
@@ -131,7 +131,7 @@ public class SockUDP {
         }
         // let other threads the chance to consume the buffer
         if(!RECV_BUFFER.isEmpty()) {
-            Log.d(5, "<-- inspect: yield (buffer empty)");
+            Log.d(5, "<-- inspect: yield (buffer not empty)");
             return null;
         }
         
@@ -417,7 +417,11 @@ public class SockUDP {
         int nr, remainingBytes, nextBytes;
         byte[] overflowBuffer = null;
         long totalCopiedBytes = 0;
-        Log.d(3, "udpgetf: " + UDPHost.sockAddress(source));
+        if(source != null) {
+            Log.d(3, "udpgetf: " + UDPHost.sockAddress(source));
+        } else {
+            Log.d(3, "udpgetf: unknown source");
+        }
         
         // wait for preamble from remote host's putf
         Payload payload;
@@ -590,10 +594,11 @@ public class SockUDP {
         Log.d(3, "udpget: " + (source != null ? UDPHost.sockAddress(source) :
                 "source unknown (waiting)"));
         Payload payload = recv(source, null);
-        source = payload.getRemote();
         int len = Integer.parseInt(payload.decode());
         byte[] data = new byte[len];
         int n = (len-1) / UDP_PUT_BUFFER_SIZE + 1;
+        Log.d(3, "udpget: " + UDPHost.sockAddress(payload.getRemote()) +
+                 "len=" + len + " n=" + n);
         int off = 0;
         if(p != null) {
             p.totalBytes = len;
@@ -603,9 +608,9 @@ public class SockUDP {
             len = payload.get().length;
             System.arraycopy(payload.get(), 0, data, off, len);
             off += len;
-            write(source, "next");
+            write(payload.getRemote(), "next");
         }
-        return new Payload(data, source);
+        return new Payload(data, payload.getRemote());
     }
     
     /**
@@ -644,19 +649,22 @@ public class SockUDP {
         }
         int i;
         Log.d(3, "  udpsend: dataLen=" + data.length + " n=" + n);
-        write(addr, String.valueOf(n));
+        // write(addr, String.valueOf(n));
         for(i = 0; i < n; i++) {
-            byte[] header = new byte[2];
+            byte[] header = new byte[4];
             // order
             header[0] = (byte) ((i+1) / 256);
             header[1] = (byte) ((i+1) % 256);
-            boolean lastChunk = data.length-bytesSent+2 <= UDP_MAX_DATAGRAM_SIZE;
+            // total
+            header[2] = (byte) (n / 256);
+            header[3] = (byte) (n % 256);
+            boolean lastChunk = data.length-bytesSent+4 <= UDP_MAX_DATAGRAM_SIZE;
             int sendSize = !lastChunk ? 
-                    UDP_MAX_DATAGRAM_SIZE : data.length-bytesSent+2;
+                    UDP_MAX_DATAGRAM_SIZE : data.length-bytesSent+4;
             byte[] sendBuffer = new byte[sendSize];
-            System.arraycopy(header, 0, sendBuffer, 0, 2);
-            System.arraycopy(data, bytesSent, sendBuffer, 2, sendSize-2);
-            bytesSent += sendSize-2;
+            System.arraycopy(header, 0, sendBuffer, 0, 4);
+            System.arraycopy(data, bytesSent, sendBuffer, 4, sendSize-4);
+            bytesSent += sendSize-4;
             DatagramPacket packet = new DatagramPacket(sendBuffer, sendSize, 
                     addr);
             Log.d(3, ">>> udpsend: " + UDPHost.sockAddress(addr)
@@ -693,7 +701,8 @@ public class SockUDP {
      * {@link #send(DatagramSocket, SocketAddress, byte[]) send}. The received 
      * data is then enclosed in a Payload object. The <code>source</code>
      * parameter is needed if we are expecting to receive packets from different
-     * hosts
+     * hosts. Having <code>null</code> for source means that the first packet
+     * can be from anywhere
      * 
      * @param source source address to match, <code>null</code> to match all
      * packets (dangerous)
@@ -703,49 +712,45 @@ public class SockUDP {
      */
     public Payload recv(SocketAddress source,
                         Progress p) throws IOException {
-        DatagramPacket numPackets;
-        if(source != null) {
-            while((numPackets = inspect(source)) == null);
-        } else {
-            numPackets = read();
-            source = numPackets.getSocketAddress();
-        }
-        Payload pp = new Payload(numPackets.getData(), 0, 
-                                 numPackets.getLength(), source);
-        int totalPackets = Integer.parseInt(pp.decode());
+        int totalPackets = -1;
         int i = 0;
-        /*
-        // buffer the packets
-        while(i < totalPackets) {
-            Log.d(5, "recv-fill(" + UDPHost.sockAddress(source) + ": " +
-                    (i+1) + " / " + totalPackets);
-            i += fill(source) ? 1 : 0;
-        }
-        Log.d(5, "recv-fill(" + UDPHost.sockAddress(source) + ": SATISFIED");
-        */
         int nr = 0;        
-        byte[] payload = new byte[totalPackets * (UDP_MAX_DATAGRAM_SIZE-2)];
-        for(i = 0; i < totalPackets; i++) {
-            DatagramPacket packet = read(source);
+        DatagramPacket packet;
+        SocketAddress packetSource = null;
+        byte[] payload = null;
+        while(totalPackets < 0 || i < totalPackets) {
+            if(source != null) {
+                packet = read(source);
+            } else {
+                packet = read();
+            }
+            packetSource = packet.getSocketAddress();
             byte[] data = packet.getData();
             int len = packet.getLength();
             int order = ((int)(data[0] << 8) & 0xff00) +
                         ((int)(data[1])      & 0x00ff);
-            Log.d(3, "<<< udprecv: " + UDPHost.sockAddress(source) + " " +
-                     "header: " + 
-                     String.format("%02X %02X", 
-                     data[0], data[1]) +
-                     " pieces: " + order + "/" + totalPackets + " " +
-                     (len-2) + " bytes");
-            System.arraycopy(data, 2, payload, 
-                             (order-1)*(UDP_MAX_DATAGRAM_SIZE-2),
-                             len-2);
-            nr += (len-2);
-            if(p != null) {
-                p.copiedTotalBytes += (len-2);
+            totalPackets = ((int)(data[2] << 8) & 0xff00) +
+                           ((int)(data[3])      & 0x00ff);
+            if(payload == null) {
+                payload = new byte[totalPackets * (UDP_MAX_DATAGRAM_SIZE-4)];
             }
+            Log.d(3, "<<< udprecv: " + UDPHost.sockAddress(packetSource) + " " +
+                     "header: " + 
+                     String.format("%02X %02X %02X %02X", 
+                     data[0], data[1], data[2], data[3]) +
+                     " pieces: " + order + "/" + totalPackets + " " +
+                     (len-4) + " bytes");
+            System.arraycopy(data, 4, payload, 
+                             (order-1)*(UDP_MAX_DATAGRAM_SIZE-4),
+                             len-4);
+            nr += (len-4);
+            if(p != null) {
+                p.copiedTotalBytes += (len-4);
+            }
+            i++;
         }
-        return new Payload(payload, 0, nr, source);
+        Log.d(3, "    udprecv: nr=" + nr);
+        return new Payload(payload, 0, nr, packetSource);
     }
     
     /**
@@ -787,9 +792,7 @@ public class SockUDP {
     public DatagramPacket read(SocketAddress addr) throws IOException {       
         DatagramPacket packet;
         Log.d(4, "> udpread: " + UDPHost.sockAddress(addr));
-        while((packet = inspect(addr)) == null) {
-            //Log.d(5, "    !!! udpread: " + UDPHost.sockAddress(addr) + " blocked");
-        };
+        while((packet = inspect(addr)) == null);
         Log.d(4, "< udpread: " + UDPHost.sockAddress(addr) + 
                  " bytes=" + packet.getLength() + " \"" + 
                  (new Payload(packet)).decode() + "\"");
